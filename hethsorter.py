@@ -1,3 +1,4 @@
+import string
 import pandas as pd
 import numpy as np
 import h5py
@@ -129,14 +130,15 @@ def h5_to_album(file):
         save_spect(song_album[i], song_name, file)
 
     #save the album as a dataframe and then csv
-    datadict = {'intro times': [], 'intro freqs': [], 'intro lengths': [], 'post locs': []}
+    datadict = {'intro times': [], 'intro freqs': [], 'intro lengths': [],'post size': [], 'post locs': []}
 
     for entry in song_album:
         datadict['intro times'].append(entry['intro time'])
         datadict['intro freqs'].append(entry['intro freq'])
         datadict['intro lengths'].append(entry['intro length'])       
         datadict['post locs'].append(''.join(''.join(map(str, entry['post notes']))))
-        
+        datadict['post size'].append(len(entry['post notes']))
+
     df = pd.DataFrame(datadict)
     df.to_csv('df.csv')
     count_matches(song_album)
@@ -349,23 +351,23 @@ def count_matches(album):
             max_songs = max(total_notes_1, total_notes_2)
             best_score = 0
             #this the list of frames to shift left or right to find the best matches
-            for i in [-10, 0, 10]:
+            for i in [-5, 0, 5]:
                 matches = 0
                 for target_note in target_song['post notes']:
                     for compare_note in compare_song['post notes']:
-                        if (abs(target_note[0] - compare_note[0]) < 15) and (abs((target_note[1]+i) - compare_note[1]) < 5):
+                        if (abs(target_note[0] - compare_note[0]) < 15) and (abs((target_note[1]+i) - compare_note[1]) < 9):
                             matches += 1
                 if matches > best_score:
                     best_score = matches                
-            if ((compare_name in match_dict) and (target_name in match_dict[compare_name])) or (target_name == compare_name):
-                pass
+            if (target_name == compare_name):
+                match_dict[target_name][compare_name] = 0
             else:
                 match_dict[target_name][compare_name] = round(best_score/max_songs, 2)
     print(match_dict)
+
     match_df = pd.DataFrame(match_dict)
     print(match_df.shape)
     match_df.to_csv('match_df.csv')
-    sort_songs(match_dict)
 
 def sort_songs(dict):
     threshold = 0.5
@@ -479,7 +481,125 @@ def sort_songs(dict):
             dict[max_target].pop(max_compare)
     print(song_types)
 
+def new_sort_songs(dict):
+    threshold = 0.9
+    song_types = {}
+    #stage 1: sort each song in a group with it's closest match if it is above threshold
+    for song in dict:
+        print(song)
+        max_match_value = 0
+        max_match = ''
+        for second_song in dict[song]:
+            if dict[song][second_song] > max_match_value:
+                max_match_value = dict[song][second_song]
+                max_match = second_song
+        if (max_match_value <= threshold):
+            song_types[len(song_types) + 1] = []
+            song_types[len(song_types)].append(song)          
+        else:
+            for category in song_types:
+                if (song in song_types[category]) and (max_match not in song_types[category]):
+                    song_types[category].append(max_match)
+                    break
+                elif (song not in song_types[category]) and (max_match in song_types[category]):
+                    song_types[category].append(song)
+                    break
+                elif (song in song_types[category]) and (max_match in song_types[category]):
+                    break
+            else:
+                song_types[len(song_types) + 1] = []
+                song_types[len(song_types)].append(song)
+                song_types[len(song_types)].append(max_match)
+    print(song_types)
+    #stage 2: if any two groups belong together, collapse them together
+    score_within = 0
+    score_between = 0
+    for target_category in song_types:
+        if song_types[target_category] != 'delete':
+            for compare_category in song_types:
+                if song_types[compare_category] != 'delete':
+                    if target_category != compare_category:
+                        #calculate the score_within
+                        score_list = []
+                        for target_song in song_types[target_category]:
+                            for other_target_song in song_types[target_category]:
+                                if target_song != other_target_song:
+                                    score_list.append(dict[target_song][other_target_song])
+                        score_within = np.mean(score_list)
+                        #calculate the score between
+                        score_list = []
+                        for target_song in song_types[target_category]:
+                            for compare_song in song_types[compare_category]:
+                                if target_song != compare_song:
+                                    score_list.append(dict[target_song][compare_song])
+                        score_between = np.mean(score_list)
+                        #check if the scores are similar
+                        if abs(1 - (score_within/score_between)) < .2:
+                            for song in song_types[compare_category]:
+                                song_types[target_category].append(song)
+                            song_types[compare_category] = 'delete'
+    for category in list(song_types):
+        if song_types[category] == 'delete':
+            song_types.pop(category)
+    print(song_types)
+    return song_types
 
+def relabel_song_types(dict):
+    new_dict = {}
+    letter_names = ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H','I', 'J','K','L','M','N','O','P','Q','R','S','T','U','V','W','X','Y','Z']
+    while (len(new_dict) < len(dict)):
+        lowest_cat = 0
+        lowest_freq = 15000
+        for category in dict:
+            for song in dict[category]:
+                if dict[category] != 'delete':
+                    if int(song.split(';')[0]) < lowest_freq:
+                        lowest_freq = int(song.split(';')[0])
+                        lowest_cat = category
+        index = len(new_dict)
+        new_dict[letter_names[index]] = dict[lowest_cat]
+        dict[lowest_cat] = 'delete'
+    print(new_dict)
+    return new_dict
+            
+def make_selection_table(dicty):
+    dict = dicty.copy()
+    sel_table = []
+    any_left = True
+    while any_left:
+        lowest_time = 9876543210
+        lowest_freq = ''
+        lowest_cat = ''
+        for category in dict:
+            for song in dict[category]:
+                if dict[category] != 'delete':
+                    if float(song.split(';')[1]) < lowest_time:
+                        lowest_time = float(song.split(';')[1])
+                        lowest_cat = category
+                        lowest_freq = int(song.split(';')[0])
+        sel_table.append({'time': lowest_time, 'freq': lowest_freq, 'type':lowest_cat})
+        dict[lowest_cat].remove(str(lowest_freq) + ';' + str(lowest_time))
+        any_left = False
+        for category in dict:
+            if len(dict[category]) > 0:
+                any_left = True
+    print(sel_table)
+    df = pd.DataFrame(sel_table)
+    print(df)
+
+
+
+def load_match_df(file:string):
+    df = pd.read_csv(file)
+    dicty = df.to_dict('records')
+    for dictionary in dicty:
+        dictionary.pop('Unnamed: 0')
+
+    key_list = (list(dicty[0]))
+    new_dict = {}
+    for i in range(len(dicty)):
+        new_dict[key_list[i]] = dicty[i]
+    return new_dict
 
     # CODE FOR FIGURING OUT THE FREQUENCIES OF EACH ROW
 # n_fft = 2048
@@ -498,8 +618,8 @@ filename = 'twominute'
 
 intro_onset = -60
 intro_threshold = -55
-intro_max = -50
-intro_min_length = 10
+intro_max = -45
+intro_min_length = 11
 intro_max_length = 15
 intro_jumps = 1
 
@@ -566,5 +686,17 @@ post_jumps = 1
 # df.to_csv('1test.csv')
 # display_spect(seg)
 
-h5_to_album(filename)
+# h5_to_album(filename)
 
+
+# csv_filename = 'match_df.csv'
+# with open(csv_filename) as f:
+#     reader = csv.DictReader(f)
+#     for row in reader:
+#         print(f'this is a new row: {row}')
+
+
+match_dicty = load_match_df('match_df.csv')
+song_types = new_sort_songs(match_dicty)
+song_types = relabel_song_types(song_types)
+make_selection_table(song_types)
