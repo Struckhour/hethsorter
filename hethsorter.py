@@ -125,14 +125,22 @@ def h5_to_album(file):
             j += 1            
         i += 1
     #save a bunch of spectrograms
+    save_images(song_album, file)
+    #save the album as a dataframe and then csv
+    save_df(song_album)
+    #compare all songs to each other and save csv
+    count_matches(song_album)
+
+def save_images(song_album, file):
     for i in range(len(song_album)):
         song_name = 'song' + str(i+1)
         save_spect(song_album[i], song_name, file)
 
-    #save the album as a dataframe and then csv
-    datadict = {'intro times': [], 'intro freqs': [], 'intro lengths': [],'post size': [], 'post locs': []}
+def save_df(song_album):
+    datadict = {'intro column': [], 'intro times': [], 'intro freqs': [], 'intro lengths': [],'post size': [], 'post locs': []}
 
     for entry in song_album:
+        datadict['intro column'].append(entry['intro column'])
         datadict['intro times'].append(entry['intro time'])
         datadict['intro freqs'].append(entry['intro freq'])
         datadict['intro lengths'].append(entry['intro length'])       
@@ -141,7 +149,6 @@ def h5_to_album(file):
 
     df = pd.DataFrame(datadict)
     df.to_csv('df.csv')
-    count_matches(song_album)
 
     #CHECK IF THERE IS A LINE AT THIS LOCATION
 def check_for_a_line(array, row_index: int, column_index: int, rows:int, columns:int, min_threshold:int, max_threshold:int, min_length:int, max_length:int, jump_limit:int):
@@ -283,7 +290,7 @@ def add_song_to_album(array, column, columns, post_notes, line_dict):
         new_array = zero_array
     # store the song
     print(line_dict)
-    return {"intro time": round((line_dict['onset time']) * 0.023219814, 1), "intro freq": line_dict['onset freq'], "intro length":line_dict['length'], "array": new_array, "label": label, "post notes": post_notes}
+    return {"intro column": line_dict['onset time'], "intro time": round((line_dict['onset time']) * 0.023219814, 1), "intro freq": line_dict['onset freq'], "intro length":line_dict['length'], "array": new_array, "label": label, "post notes": post_notes}
 
 # CREATE AND DISPLAY SPECTROGRAM
 def display_spect(array):
@@ -298,15 +305,31 @@ def display_spect(array):
 
 def save_spect(dict, name, folder):
     fig, ax = plt.subplots(figsize=(15, 7))
-    img = librosa.display.specshow(dict["array"], x_axis='time', y_axis=None, sr=22050, ax=ax)
-    ax.set_title(str(dict["intro time"]) + ' seconds' + ' ' + dict["label"], fontsize=20)
+    img = librosa.display.specshow(dict["array"], x_axis=None, y_axis=None, sr=22050, ax=ax)
+    ax.set_title(str(dict["intro time"]) + ' seconds' + ' ' + dict["label"] + ':' + str(dict['intro column']), fontsize=20)
+    ax.tick_params(direction='out', labelsize='medium', width=3, grid_alpha=0.9)
+    ax.grid(True, linestyle='-.')
     fig.colorbar(img, ax=ax, format=f'%0.2f')
-    fig.gca().set_yticks(range(0, 743-120, 50))
+    fig.gca().set_yticks(range(0, 743-120, 25))
     fig.gca().set_ylabel("Row")
+    fig.gca().set_xticks(range(0, 70, 5))
     directory = folder + '/' + name
     plt.savefig(directory)
     plt.close()
 
+def save_spect_from_array(dict, name, folder):
+    fig, ax = plt.subplots(figsize=(15, 7))
+    img = librosa.display.specshow(dict, x_axis=None, y_axis=None, sr=22050, ax=ax)
+    ax.set_title(str(200) + ' seconds' + ' ' + 'verified', fontsize=20)
+    fig.colorbar(img, ax=ax, format=f'%0.2f')
+    fig.gca().set_yticks(range(0, 743-120, 25))
+    fig.gca().set_ylabel("Row")
+    fig.gca().set_xticks(range(100, 270, 10))
+    fig.gca().tick_params(direction='out', length=6, width=2, colors='r',
+               grid_color='r', grid_alpha=0.5)
+    directory = folder + '/' + name
+    plt.savefig(name)
+    plt.close()
 
 def save_whole_spect(array, name):
     fig, ax = plt.subplots(figsize=(15, 7))
@@ -686,7 +709,7 @@ post_jumps = 1
 # df.to_csv('1test.csv')
 # display_spect(seg)
 
-# h5_to_album(filename)
+h5_to_album(filename)
 
 
 # csv_filename = 'match_df.csv'
@@ -696,7 +719,7 @@ post_jumps = 1
 #         print(f'this is a new row: {row}')
 
 
-match_dicty = load_match_df('match_df.csv')
-song_types = new_sort_songs(match_dicty)
-song_types = relabel_song_types(song_types)
-make_selection_table(song_types)
+# match_dicty = load_match_df('match_df.csv')
+# song_types = new_sort_songs(match_dicty)
+# song_types = relabel_song_types(song_types)
+# make_selection_table(song_types)
