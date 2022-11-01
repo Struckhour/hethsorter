@@ -1,4 +1,4 @@
-#INFO TO REMEMBER changy changy
+#INFO TO REMEMBER
 #row to actual frequency: (row + 120) * 10.7666 where 120 is the bottom section cut off of the spectrograms
 #each pixel/column is 0.023219814 seconds long 
 
@@ -22,8 +22,6 @@ color_pal = plt.rcParams["axes.prop_cycle"].by_key()["color"]
 color_cycle = cycle(plt.rcParams["axes.prop_cycle"].by_key()["color"])
 
 
-
-
     # FUNCTIONS
 
 # LOAD A RECORDING AND FOURIER TRANSFORM IT
@@ -35,62 +33,6 @@ def fourier(file):
     print(np.shape(S_db))
     S_db = S_db[120:743,:]
     return S_db
-
-
-# CUT UP RECORDINGS INTO SONGS BASED ON MAX DECIBELS IN A COLUMN
-# def make_song_list(array):
-#     song_album = []
-#     i = 0
-#     j = 0
-#     loudest_row = 0
-#     prev_loudest_row = 0
-#     score = 0
-#     max_dec = -80
-#     rows = len(array)
-#     columns = len(array[0])
-#     print(rows)
-#     print(columns)
-#     while i < columns:
-#         while j < rows:
-#             # print(array[j][i])
-#             if array[j][i] > intro_threshold:
-#                 if array[j][i] > max_dec:
-#                     max_dec = array[j][i]
-#                     loudest_row = j
-#             j += 1
-#             # check if the current loudest row matches the last column's loudest row
-#         if (loudest_row > 0) and (loudest_row < prev_loudest_row + 2) and (loudest_row > prev_loudest_row - 2):
-#             score += 1
-#         else:
-#             score = 0
-#         # reset variables for next column
-#         prev_loudest_row = loudest_row
-#         max_dec = -80
-#         loudest_row = 0
-#         j = 0
-            
-#         if score > 4:
-#             # a song has been identified and is now added to an array
-#             print(f'the intro note ends at row: {loudest_row} and column: {i}')
-#             if i+50 < columns:
-#                 new_array = array[:,i-6:i+50]
-#             else:
-#                 # add columns to a clipped song so that it fits with the others
-#                 new_array = array[:, i-6:]
-#                 shorter_cols = np.shape(new_array)[1]
-#                 zero_array = np.zeros((576, 56))
-#                 zero_array.fill(-80)
-#                 col_diff = 56 - shorter_cols
-#                 zero_array[:,:-col_diff] = new_array
-#                 new_array = zero_array
-#             # store the song
-#             song_album.append([round((i-6) * 0.023219814, 1), new_array])
-#             # skip the width of a song and continue on
-#             i += 60
-#         else:
-#             # carry on to the next column
-#             i += 1
-#     return song_album
 
 # LOAD ARRAY FROM H5 AND CREATE SONG ALBUM
 def h5_to_album(file):
@@ -153,43 +95,6 @@ def save_df(song_album, dfname):
 
     df = pd.DataFrame(datadict)
     df.to_csv(dfname + '.csv')
-
-    #CHECK IF THERE IS A LINE AT THIS LOCATION
-# def check_for_a_line(array, row_index: int, column_index: int, rows:int, columns:int, min_threshold:int, max_threshold:int, min_length:int, max_length:int, jump_limit:int):
-#     jumps = 0
-#     value = array[row_index][column_index]
-#     if (row_index > (max_length * 2)) and (row_index < rows - (max_length * 2)) and (column_index < columns - max_length):
-#         value_list = []
-#         length = 0
-#         onset_freq = 0
-#         for m in range(max_length):
-#             not_a_max = 0
-#             for n in range(5):
-#                 value = array[row_index+n-2][column_index+m]
-#                 if value < min_threshold:
-#                     not_a_max += 1
-#                     continue
-#                 # check if anything within two rows is larger
-#                 for k in range(5):
-#                     if array[row_index+n+k-2][column_index+m] > value:
-#                         not_a_max += 1
-#                         break
-#                 # check if we did not find anything larger:
-#                 if (not_a_max == n):
-#                     value_list.append(array[row_index+n-2][column_index+m])
-#                     if abs((row_index+n-2) - row_index) > 1:
-#                         jumps += 1
-#                     row_index = row_index+n-2
-#                     length += 1
-#                     if onset_freq == 0:
-#                         onset_freq = row_index
-#                     break
-#             if ((not_a_max > 4) and (length < min_length)) or (jumps > jump_limit):
-#                 return {'length': 0}
-#         for value in value_list:
-#             if value > max_threshold:
-#                 return {'length': length, 'onset time': column_index, 'onset freq': onset_freq}
-#     return {'length': 0}
 
 def check_for_thread(array, row, column, rows, columns, threshold, max_threshold, min_length, stop_length):
     length_count = 0
@@ -399,6 +304,8 @@ def store_an_array(file, start, duration):
         hf.create_dataset(str(duration) + 'seconds' + "_dataset", data=new_seg)
 
 
+
+
 # CHECK NUMBER OF POST MATCHES BETWEEN SONGS
     # song_album.append({"intro time": round((column-6) * 0.023219814, 1), "intro freq": row, "array": new_array, "label": label, "post notes": post_notes})
 
@@ -434,118 +341,6 @@ def count_matches(album):
     match_df = pd.DataFrame(match_dict)
     print(match_df.shape)
     match_df.to_csv('match_df.csv')
-
-# def sort_songs(dict):
-#     threshold = 0.5
-#     song_types = {}
-#     total_values = 100
-#     while(total_values > 1):
-#         total_values = 0
-#         for inner_dict in dict:
-#             total_values += len(dict[inner_dict])
-#         print(f'total dict values: {total_values}')
-#         print(f'length of song_types: {len(song_types)}')
-#         #Find the best match between two songs
-#         max = -1
-#         max_target = ''
-#         max_compare = ''
-#         for target in dict:
-#             for compare in dict[target]:
-#                 if dict[target][compare] > max:
-#                     max_target = target
-#                     max_compare = compare
-#                     max = dict[target][compare]
-#         if len(song_types) > 0:
-#             #check if they've both been sorted. If so, pop them and move on
-#             for song_type in song_types:
-#                 if max_target in song_types[song_type]:
-#                     for song_type_B in song_types:
-#                         if max_compare in song_types[song_type_B]:
-#                             print(f'1 popping {max_target}:{max_compare}:{dict[max_target][max_compare]}')
-#                             dict[max_target].pop(max_compare)
-#                             break
-#                     else:
-#                         #so only max_target has already been sorted, so add max_compare if it's above threshold
-#                         if max > threshold:
-#                             song_types[song_type].append(max_compare)
-#                             print(f'2 popping {max_target}:{max_compare}:{dict[max_target][max_compare]}')
-#                             dict[max_target].pop(max_compare)
-#                             break
-#                         else:
-#                             #if below threshold add max_compare to a new category
-#                             length = len(song_types)
-#                             song_types[length + 1] = [max_compare]
-#                             print(f'3 popping {max_target}:{max_compare}:{dict[max_target][max_compare]}')
-#                             dict[max_target].pop(max_compare)
-#                             break
-#                     break
-#             else: #max_target is not already sorted
-#                 for song_type in song_types:
-#                     if max_compare in song_types[song_type]:
-#                         if max > threshold:
-#                             song_types[song_type].append(max_target)
-#                             print(f'4 popping {max_target}:{max_compare}:{dict[max_target][max_compare]}')
-#                             dict[max_target].pop(max_compare)
-#                             break
-#                         else:
-#                             length = len(song_types)
-#                             song_types[length + 1] = [max_target]
-#                             print(f'5 popping {max_target}:{max_compare}:{dict[max_target][max_compare]}')
-#                             dict[max_target].pop(max_compare)
-#                             break
-#                 else: #neither have been sorted yet
-#                     if max > threshold:
-#                         #check if max_target has a match with anything already sorted. If so, put both in the best category
-#                         break_out = False
-#                         best_match = 0
-#                         best_match_type = ''
-#                         for song_type in song_types:
-#                             for song in song_types[song_type]:
-#                                 if (song in dict[max_target]) and (dict[max_target][song] > threshold):
-#                                     if dict[max_target][song] > best_match:
-#                                         best_match = dict[max_target][song]
-#                                         best_match_type = song_type
-#                         if best_match > 0:
-#                             song_types[best_match_type].append(max_target)
-#                             song_types[best_match_type].append(max_compare)
-#                             print(f'5a popping {max_target}:{max_compare}:{dict[max_target][max_compare]}')
-#                             dict[max_target].pop(max_compare)
-#                             break_out = True
-#                         if break_out:
-#                             continue
-#                         #check if max_compare has a match with anything already sorted. If so, put bot in the best category
-#                         best_match = 0
-#                         best_match_type = ''
-#                         for song_type in song_types:
-#                             for song in song_types[song_type]:
-#                                 if (song in dict[max_compare]) and (dict[max_compare][song] > threshold):
-#                                     if dict[max_compare][song] > best_match:
-#                                         best_match = dict[max_compare][song]
-#                                         best_match_type = song_type
-#                         if best_match > 0:
-#                             song_types[best_match_type].append(max_target)
-#                             song_types[best_match_type].append(max_compare)
-#                             print(f'5b popping {max_target}:{max_compare}:{dict[max_target][max_compare]}')
-#                             dict[max_target].pop(max_compare)
-#                             break_out = True
-#                         if break_out:
-#                             continue
-#                         length = len(song_types)
-#                         song_types[length + 1] = [max_target]
-#                         song_types[length + 1].append(max_compare)
-#                         print(f'6 popping {max_target}:{max_compare}:{dict[max_target][max_compare]}')
-#                         dict[max_target].pop(max_compare)
-#                     else:
-#                         length = len(song_types)
-#                         song_types[length + 1] = [max_target]
-#                         song_types[length + 2] = [max_compare]
-#                         print(f'7 popping {max_target}:{max_compare}:{dict[max_target][max_compare]}')
-#                         dict[max_target].pop(max_compare)            
-#         else:
-#             song_types[1] = [max_target, max_compare]
-#             print(f'8 popping {max_target}:{max_compare}:{dict[max_target][max_compare]}')
-#             dict[max_target].pop(max_compare)
-#     print(song_types)
 
 def new_sort_songs(dict):
     threshold = match_threshold
@@ -594,21 +389,6 @@ def new_sort_songs(dict):
                     if song in song_types[category]:
                         song_types[category].append(max_match)
                         break
-            # #check each category for combinations of song and/or max_match and add accordingly
-            # for category in song_types:
-            #     if (song in song_types[category]) and (max_match not in song_types[category]) and (not max_sorted):
-            #         song_types[category].append(max_match)
-            #         break
-            #     elif (song not in song_types[category]) and (max_match in song_types[category]) and (not song_sorted):
-            #         song_types[category].append(song)
-            #         break
-            #     elif (song in song_types[category]) and (max_match in song_types[category]):
-            #         break
-            # #neither of them have been sorted yet, so create new category for the pair
-            # else:
-            #     song_types[len(song_types) + 1] = []
-            #     song_types[len(song_types)].append(song)
-            #     song_types[len(song_types)].append(max_match)
     print(f'stage one: {song_types}')
 
     #stage 2: if any two groups belong together, collapse them together
