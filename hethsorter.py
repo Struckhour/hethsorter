@@ -2,6 +2,7 @@
 #row to actual frequency: (row + 120) * 10.7666 where 120 is the bottom section cut off of the spectrograms
 #each pixel/column is 0.023219814 seconds long 
 
+from math import floor
 import string
 import pandas as pd
 import numpy as np
@@ -81,6 +82,34 @@ def save_images(song_album, file):
     for i in range(len(song_album)):
         song_name = 'song' + str(i+1)
         save_spect(song_album[i], song_name, file)
+
+def cut_array_into_specs(array, folder: string, length: float):
+    os.mkdir(folder)
+    length = floor(length * (1/0.023219814))
+    columns = len(array[0])
+    rows = len(array)
+    name_count = 0
+    column = 0
+    while column < columns:
+        print(column)
+        song_name = str(round(column * 0.023219814, 2))
+        bracket = song_name + ' - ' + str(round((column + length) * 0.023219814, 2))
+        print(song_name)
+        if ((column + length) < columns):
+            chunk = array[:, column:column + length]
+            save_spect_from_array(chunk, song_name, folder, length, bracket)
+        else:
+            new_array = array[:, column:]
+            shorter_cols = np.shape(new_array)[1]
+            zero_array = np.zeros((623, length))
+            zero_array.fill(-80)
+            col_diff = length - shorter_cols 
+            zero_array[:,:-col_diff] = new_array
+            new_array = zero_array
+            save_spect_from_array(new_array, song_name, folder, length, bracket)
+        column += length
+        name_count += 1
+
 
 def save_df(song_album, dfname):
     datadict = {'intro column': [], 'intro time': [], 'intro freq': [], 'intro length': [],'post size': [], 'post locs': []}
@@ -264,18 +293,18 @@ def save_spect(dict, name, folder):
     plt.savefig(directory)
     plt.close()
 
-def save_spect_from_array(dict, name, folder):
+def save_spect_from_array(array, name, folder, length, bracket):
     fig, ax = plt.subplots(figsize=(15, 7))
-    img = librosa.display.specshow(dict, x_axis=None, y_axis=None, sr=22050, ax=ax)
-    ax.set_title(str(200) + ' seconds' + ' ' + 'verified', fontsize=20)
+    img = librosa.display.specshow(array, x_axis=None, y_axis=None, sr=22050, ax=ax)
+    ax.set_title(bracket, fontsize=20)
+    ax.tick_params(direction='out', labelsize='medium', width=3, grid_alpha=0.9)
+    ax.grid(True, linestyle='-.')
     fig.colorbar(img, ax=ax, format=f'%0.2f')
     fig.gca().set_yticks(range(0, 743-120, 25))
     fig.gca().set_ylabel("Row")
-    fig.gca().set_xticks(range(100, 270, 10))
-    fig.gca().tick_params(direction='out', length=6, width=2, colors='r',
-               grid_color='r', grid_alpha=0.5)
-    directory = folder + '/' + name
-    plt.savefig(name)
+    fig.gca().set_xticks(range(0, length, floor(length/10)))
+    directory = folder + '/' + str(floor(float(name)))
+    plt.savefig(directory)
     plt.close()
 
 def save_whole_spect(array, name):
@@ -505,9 +534,6 @@ def create_song_album_from_df(dicty_list, filename: string):
     save_df(song_album, 'new_df')
     #compare all songs to each other and save csv
 
-
-
-
 def load_df(file:string):
     df = pd.read_csv(file)
     dicty_list = df.to_dict('records')
@@ -626,11 +652,11 @@ match_threshold = 0.9 #this is the matchscore cutoff for deciding whether a ST g
 
 # h5_to_album(filename)
 
-# dicty_list = load_df('df.csv')
-# create_song_album_from_df(dicty_list, filename)
+dicty_list = load_df('df.csv')
+create_song_album_from_df(dicty_list, filename)
 
-# dicty_list = load_df('new_df.csv')
-# count_matches(dicty_list)
+dicty_list = load_df('new_df.csv')
+count_matches(dicty_list)
 
 
 
@@ -645,3 +671,7 @@ match_dicty = load_match_df('match_df.csv')
 song_types = new_sort_songs(match_dicty)
 song_types = relabel_song_types(song_types)
 make_selection_table(song_types)
+
+# with h5py.File(filename + '.h5', 'r') as hf:
+#     data = hf[filename + '_dataset'][:]
+# cut_array_into_specs(data, 'chunks', 20)
