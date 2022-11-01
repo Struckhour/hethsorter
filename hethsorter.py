@@ -1,3 +1,7 @@
+#INFO TO REMEMBER changy changy
+#row to actual frequency: (row + 120) * 10.7666 where 120 is the bottom section cut off of the spectrograms
+#each pixel/column is 0.023219814 seconds long 
+
 import string
 import pandas as pd
 import numpy as np
@@ -109,8 +113,9 @@ def h5_to_album(file):
             if i >= columns:
                 break
             if (data[j][i] > intro_onset):
-                print(f'checking a new pixel at column: {i}')
-                line_dict = check_for_thread(data, j, i, rows, columns, intro_threshold, intro_max, intro_min_length, intro_max_length)
+                # print(f'checking a new pixel at column: {i}, row: {j}')
+                line_dict = check_for_thread_strict(data, j, i, rows, columns, intro_threshold, intro_max, intro_min_length, intro_max_length)
+                # print(line_dict)
                 if line_dict['length'] > intro_min_length:
                     post_notes = check_for_posts(data, post_threshold, post_onset, i, columns, rows)
                     #cut the song out and add it to album
@@ -246,6 +251,44 @@ def check_for_thread(array, row, column, rows, columns, threshold, max_threshold
         else:
             return {'length': 0}
     else:
+        return {'length': 0}
+
+def check_for_thread_strict(array, row, column, rows, columns, threshold, max_threshold, min_length, stop_length):
+    length = 1
+    line_values = []
+    start_row = row
+    prev_value = array[row, column]
+    line_values.append(prev_value)
+    if (row > (stop_length)) and (row < (rows - stop_length)) and (column < columns - stop_length):
+        while (length < stop_length):
+            next_value = -80
+            new_row = 0
+            for i in [0, -1, 1]:
+                if (array[row + i, column + length] > next_value):
+                    next_value = array[row + i, column + length]
+                    new_row = row + i
+            if (array[new_row, column + length] > threshold) and (abs(array[new_row, column + length] - prev_value) < diff_threshold):
+                line_values.append(array[new_row, column + length])
+                prev_value = array[new_row, column + length]
+                row = new_row
+                length += 1
+            else:
+                if (length >= min_length) and (max(line_values) > max_threshold):
+                    print('medium thread')
+                    print(line_values)
+                    return {'length': length, 'onset time': column, 'onset freq': start_row}
+                else:
+                    # print(f'did not qualify. length: {length}, max value: {max(line_values)}, line values: {line_values}')
+                    return {'length': 0}
+        if max(line_values) > max_threshold:
+            print('max line!')
+            print(line_values)
+            return {'length': length, 'onset time': column, 'onset freq': start_row}
+        else:
+            # print('max value was not above threshold')
+            return {'length': 0}
+    else:
+        # print('Out of Bounds')
         return {'length': 0}
 
 def check_for_posts(array, post_thresh:float, post_onset:float, column:int, columns:int, rows:int):
@@ -505,42 +548,76 @@ def count_matches(album):
 #     print(song_types)
 
 def new_sort_songs(dict):
-    threshold = 0.9
+    threshold = match_threshold
     song_types = {}
     #stage 1: sort each song in a group with it's closest match if it is above threshold
     for song in dict:
         print(song)
         max_match_value = 0
         max_match = ''
+        #find the best match for that song
         for second_song in dict[song]:
             if dict[song][second_song] > max_match_value:
                 max_match_value = dict[song][second_song]
                 max_match = second_song
+        #check if the best match is below threshold and if so, create a new category for it
+        print(max_match_value)
         if (max_match_value <= threshold):
             song_types[len(song_types) + 1] = []
             song_types[len(song_types)].append(song)          
         else:
+            #Check if song or max_match have already been sorted
+            song_sorted = False
+            max_sorted = False
             for category in song_types:
-                if (song in song_types[category]) and (max_match not in song_types[category]):
-                    song_types[category].append(max_match)
-                    break
-                elif (song not in song_types[category]) and (max_match in song_types[category]):
-                    song_types[category].append(song)
-                    break
-                elif (song in song_types[category]) and (max_match in song_types[category]):
-                    break
-            else:
+                if (song in song_types[category]):
+                    song_sorted = True
+                if (max_match in song_types[category]):
+                    max_sorted = True
+            #Check each combination of the two songs being sorted or not and append accordingly
+            if song_sorted and max_sorted:
+                # print(f'{song} and {max_match} already sorted')
+                continue
+            elif (not song_sorted) and (not max_sorted):
                 song_types[len(song_types) + 1] = []
                 song_types[len(song_types)].append(song)
                 song_types[len(song_types)].append(max_match)
-    print(song_types)
+                print(f'just sorted {song} into {len(song_types)}')
+            elif (not song_sorted) and max_sorted:
+                # print(f'sorting just {song} because {max_sorted} already sorted')
+                for category in song_types:
+                    if max_match in song_types[category]:
+                        song_types[category].append(song)
+                        break
+            else:
+                for category in song_types:
+                    if song in song_types[category]:
+                        song_types[category].append(max_match)
+                        break
+            # #check each category for combinations of song and/or max_match and add accordingly
+            # for category in song_types:
+            #     if (song in song_types[category]) and (max_match not in song_types[category]) and (not max_sorted):
+            #         song_types[category].append(max_match)
+            #         break
+            #     elif (song not in song_types[category]) and (max_match in song_types[category]) and (not song_sorted):
+            #         song_types[category].append(song)
+            #         break
+            #     elif (song in song_types[category]) and (max_match in song_types[category]):
+            #         break
+            # #neither of them have been sorted yet, so create new category for the pair
+            # else:
+            #     song_types[len(song_types) + 1] = []
+            #     song_types[len(song_types)].append(song)
+            #     song_types[len(song_types)].append(max_match)
+    print(f'stage one: {song_types}')
+
     #stage 2: if any two groups belong together, collapse them together
-    score_within = 0
-    score_between = 0
     for target_category in song_types:
-        if song_types[target_category] != 'delete':
+        score_within = 0
+        score_between = 0
+        if (song_types[target_category] != 'delete') and (len(song_types[target_category]) > 1):
             for compare_category in song_types:
-                if song_types[compare_category] != 'delete':
+                if song_types[compare_category] != 'delete' and (len(song_types[compare_category]) > 1):
                     if target_category != compare_category:
                         #calculate the score_within
                         score_list = []
@@ -557,14 +634,14 @@ def new_sort_songs(dict):
                                     score_list.append(dict[target_song][compare_song])
                         score_between = np.mean(score_list)
                         #check if the scores are similar
-                        if abs(1 - (score_within/score_between)) < .2:
+                        if abs(1 - (score_between/score_within)) < clumping_threshold:
                             for song in song_types[compare_category]:
                                 song_types[target_category].append(song)
                             song_types[compare_category] = 'delete'
     for category in list(song_types):
         if song_types[category] == 'delete':
             song_types.pop(category)
-    print(song_types)
+    print(f'stage two: {song_types}')
     return song_types
 
 def relabel_song_types(dict):
@@ -609,6 +686,7 @@ def make_selection_table(dicty):
     print(sel_table)
     df = pd.DataFrame(sel_table)
     print(df)
+    df.to_csv('new_selection_table.csv')
 
 def create_song_album_from_df(dicty_list, filename: string):
     with h5py.File(filename + '.h5', 'r') as hf:
@@ -694,8 +772,9 @@ intro_onset = -60
 intro_threshold = -55
 intro_max = -45
 intro_min_length = 11
-intro_max_length = 15
+intro_max_length = 17
 intro_jumps = 1
+diff_threshold = 7
 
 post_onset = -60
 post_threshold = -60
@@ -703,6 +782,11 @@ post_max = -55
 post_min_length = 5
 post_max_length = 12
 post_jumps = 1
+
+clumping_threshold = 0.2 #this is the threshold for combining ST categories based on a ratio of average match scores
+match_threshold = 0.9 #this is the matchscore cutoff for deciding whether a ST gets its own category
+
+
 # store_an_array('tenmin', 177, 120)
 
     # MAKE A SEGMENT AND SAVE IT AS A FILE
@@ -761,10 +845,11 @@ post_jumps = 1
 # display_spect(seg)
 
 # h5_to_album(filename)
-# dicty_list = load_df('df.csv')
 
+# dicty_list = load_df('df.csv')
 # create_song_album_from_df(dicty_list, filename)
 
+# dicty_list = load_df('new_df.csv')
 # count_matches(dicty_list)
 
 
