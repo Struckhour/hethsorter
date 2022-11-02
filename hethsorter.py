@@ -210,14 +210,14 @@ def check_for_thread_strict(array, row, column, rows, columns, threshold, max_th
                 if (length >= min_length) and (max(line_values) > max_threshold):
                     # print('medium thread')
                     # print(line_values)
-                    return {'length': length, 'onset time': column, 'onset freq': start_row}
+                    return {'length': length, 'onset time': column, 'onset freq': start_row, 'max db': max(line_values)}
                 else:
                     # print(f'did not qualify. length: {length}, max value: {max(line_values)}, line values: {line_values}')
                     return {'length': 0}
         if max(line_values) > max_threshold:
             # print('max line!')
             # print(line_values)
-            return {'length': length, 'onset time': column, 'onset freq': start_row}
+            return {'length': length, 'onset time': column, 'onset freq': start_row, 'max db': max(line_values)}
         else:
             # print('max value was not above threshold')
             return {'length': 0}
@@ -389,23 +389,28 @@ def new_count_matches(album):
                 larger_song_backup = compare_song['post locs']
             less_songs = len(smaller_song)
             best_score = 0
-            
+            # distance_sum = []
             #this the list of frames to shift left or right to find the best matches
             for i in [-5, 0, 5]:
                 larger_song = larger_song_backup.copy()
                 matches = 0
+                # distance_list = []
                 for target_note in smaller_song:
                     for compare_note in larger_song:
                         if (abs(target_note[0] - compare_note[0]) < 15) and (abs((target_note[1]+i) - compare_note[1]) < 10):
                             matches += 1
                             # larger_song.remove(compare_note)
+                            # distance = (abs(target_note[0] - compare_note[0])) + (abs(target_note[1] + i - compare_note[1]) + (abs(target_note[2] - compare_note[2])))
+                            # distance_list.append(distance)
                             break
                 if matches > best_score:
-                    best_score = matches                
+                    best_score = matches
+                    # distance_sum = sum(distance_list)                
             if (target_name == compare_name):
                 match_dict[target_name][compare_name] = 0
             else:
-                match_dict[target_name][compare_name] = round(best_score/less_songs, 2)
+                match_dict[target_name][compare_name] = round(best_score/less_songs, 2) #distance_sum]
+                # print(distance_list)
 
     match_df = pd.DataFrame(match_dict)
     print(match_df.shape)
@@ -583,7 +588,7 @@ def load_df(file:string):
         str = '[' + dictionary['post locs'] + ']'
         new_list = ast.literal_eval(str)
         dictionary['post locs'] = new_list
-    print(dicty_list)
+    # print(dicty_list)
 
     return dicty_list
 
