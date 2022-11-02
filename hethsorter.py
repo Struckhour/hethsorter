@@ -60,7 +60,7 @@ def h5_to_album(file):
                 line_dict = check_for_thread_strict(data, j, i, rows, columns, intro_threshold, intro_max, intro_min_length, intro_max_length)
                 # print(line_dict)
                 if line_dict['length'] > intro_min_length:
-                    post_notes = check_for_posts(data, post_threshold, post_onset, i, columns, rows)
+                    post_notes = check_for_posts(data, post_threshold, post_onset, i, columns, rows, loud_post_threshold)
                     #cut the song out and add it to album
                     song_album.append(add_song_to_album(data, i, columns, post_notes, line_dict))
                     # if it has enough post_notes, skip the width of a song and continue on
@@ -73,8 +73,10 @@ def h5_to_album(file):
             j += 1            
         i += 1
     #save a bunch of spectrograms
+    print('saving spectrograms...')
     save_images(song_album, file)
     #save the album as a dataframe and then csv
+    print('saving csv...')
     save_df(song_album, 'df')
     #compare all songs to each other and save csv
 
@@ -112,15 +114,16 @@ def cut_array_into_specs(array, folder: string, length: float):
 
 
 def save_df(song_album, dfname):
-    datadict = {'intro column': [], 'intro time': [], 'intro freq': [], 'intro length': [],'post size': [], 'post locs': []}
+    datadict = {'intro column': [], 'intro time': [], 'intro freq': [], 'intro length': [],'post size': [], 'soft locs': [], 'loud locs':[]}
 
     for entry in song_album:
         datadict['intro column'].append(entry['intro column'])
         datadict['intro time'].append(entry['intro time'])
         datadict['intro freq'].append(entry['intro freq'])
         datadict['intro length'].append(entry['intro length'])       
-        datadict['post locs'].append(''.join(','.join(map(str, entry['post notes']))))
-        datadict['post size'].append(len(entry['post notes']))
+        datadict['soft locs'].append(''.join(','.join(map(str, entry['soft notes']))))
+        datadict['loud locs'].append(''.join(','.join(map(str, entry['loud notes']))))
+        datadict['post size'].append(len(entry['soft notes']) + len(entry['loud notes']))
 
     df = pd.DataFrame(datadict)
     df.to_csv(dfname + '.csv')
@@ -225,27 +228,55 @@ def check_for_thread_strict(array, row, column, rows, columns, threshold, max_th
         # print('Out of Bounds')
         return {'length': 0}
 
-def check_for_posts(array, post_thresh:float, post_onset:float, column:int, columns:int, rows:int):
+def check_for_posts(array, post_thresh:float, post_onset:float, column:int, columns:int, rows:int, loud_post_threshold:float):
     start = column
     k = column + 10
-    post_notes = []
+    soft_notes = []
+    loud_notes = []
         # Check for post introductory portion (2 lines somewhere after the intro note)
     while k < (column + 70) and (k < columns - post_min_length):
         l = 0
         while l < rows:
             if (array[l][k] > post_onset) and (l > 50):
                 unique = True
-                for post_note in post_notes:
+                for post_note in loud_notes:    
                     if (l < post_note[0] + 20) and (l > post_note[0] - 20) and ((k - start) < (post_note[1] + post_note[2] + 5)):
-                        unique = False
+                        unique = False    
                 if unique:
                     line_dict = check_for_thread_strict(array, l, k, rows, columns, post_thresh, post_max, post_min_length, post_max_length)
-                    if line_dict['length'] >= post_min_length:
-                        post_notes.append([line_dict['onset freq'], line_dict['onset time'] - start, line_dict['length']])
+                    if (line_dict['length'] >= post_min_length) and (line_dict['max db'] > loud_post_threshold):
+                        loud_notes.append([line_dict['onset freq'], line_dict['onset time'] - start, line_dict['length']])
                         l += 19
             l += 1
         k += 1
-    return post_notes
+   
+    k = column + 10
+    while k < (column + 70) and (k < columns - post_min_length):
+        l = 0
+        while l < rows:
+            if (array[l][k] > post_onset) and (l > 50):
+                unique = True
+                for post_note in soft_notes:
+                    if (l < post_note[0] + 10) and (l > post_note[0] - 10) and ((k - start) < (post_note[1] + post_note[2] + 5)):
+                        unique = False
+                for post_note in loud_notes:    
+                    if (l < post_note[0] + 20) and (l > post_note[0] - 20) and ((k - start) < (post_note[1] + post_note[2] + 5)):
+                        unique = False    
+                if unique:
+                    line_dict = check_for_thread_strict(array, l, k, rows, columns, post_thresh, post_max, post_min_length, post_max_length)
+                    if (line_dict['length'] >= post_min_length) and (line_dict['max db'] <= loud_post_threshold):
+                        soft_notes.append([line_dict['onset freq'], line_dict['onset time'] - start, line_dict['length']])
+                        l += 5
+                    elif (line_dict['length'] >= post_min_length) and (line_dict['max db'] > loud_post_threshold):
+                        loud_notes.append([line_dict['onset freq'], line_dict['onset time'] - start, line_dict['length']])
+                        l += 5
+            l += 1
+        k += 1
+    if len(soft_notes) < 1:
+        soft_notes.append([0,0,0])
+    if len(loud_notes) < 1:
+        loud_notes.append([0,0,0])
+    return {'soft notes': soft_notes, 'loud notes': loud_notes}
 
 def add_song_to_album(array, column, columns, post_notes, line_dict):
     if len(post_notes) > 1: 
@@ -265,8 +296,7 @@ def add_song_to_album(array, column, columns, post_notes, line_dict):
         zero_array[:,:-col_diff] = new_array
         new_array = zero_array
     # store the song
-    print(line_dict)
-    return {"intro column": line_dict['onset time'], "intro time": round((line_dict['onset time']) * 0.023219814, 1), "intro freq": line_dict['onset freq'], "intro length":line_dict['length'], "array": new_array, "label": label, "post notes": post_notes}
+    return {"intro column": line_dict['onset time'], "intro time": round((line_dict['onset time']) * 0.023219814, 1), "intro freq": line_dict['onset freq'], "intro length":line_dict['length'], "array": new_array, "label": label, "soft notes": post_notes['soft notes'], "loud notes": post_notes['loud notes']}
 
 # CREATE AND DISPLAY SPECTROGRAM
 def display_spect(array):
@@ -416,6 +446,68 @@ def new_count_matches(album):
     print(match_df.shape)
     match_df.to_csv('match_df.csv')
 
+def count_both_matches(album):
+    match_dict = {}
+    for target_song in album:
+        target_name = str(target_song['intro freq']) + ';' + str(target_song['intro time'])
+        match_dict[target_name] = {}
+        for compare_song in album:
+            compare_name = str(compare_song['intro freq']) + ';' + str(compare_song['intro time'])
+            #figure out which one has the most lines and how many
+            smaller_softs = []
+            smaller_louds = []
+            larger_softs = []
+            larger_louds = []
+            if len(target_song['loud locs']) + len(target_song['soft locs']) >= len(compare_song['loud locs']) + len(compare_song['soft locs']):
+                larger_softs_backup = target_song['soft locs']
+                smaller_louds_backup = compare_song['loud locs']
+                larger_louds_backup = target_song['loud locs']
+                smaller_softs_backup = compare_song['soft locs']
+            else:
+                smaller_softs_backup = target_song['soft locs']
+                larger_softs_backup = compare_song['soft locs']
+                smaller_louds_backup = target_song['loud locs']
+                larger_louds_backup = compare_song['loud locs']
+            best_possible_score = (len(smaller_louds_backup) * 2) + len(smaller_softs_backup)
+            best_score = 0
+            #this the list of frames to shift left or right to find the best matches
+            for i in [0, 0, 0]:
+                smaller_louds = smaller_louds_backup.copy()
+                larger_louds = larger_louds_backup.copy()
+                larger_softs = larger_softs_backup.copy()
+                smaller_softs = smaller_softs_backup.copy()
+                score = 0
+                for target_note in smaller_louds:
+                    for compare_note in larger_louds:
+                        if (abs(target_note[0] - compare_note[0]) < 15) and (abs((target_note[1]+i) - compare_note[1]) < 10):
+                            score += 2
+                            break
+                    else:
+                        for compare_note in larger_softs:
+                            if (abs(target_note[0] - compare_note[0]) < 15) and (abs((target_note[1]+i) - compare_note[1]) < 10):
+                                score += 1
+                                break
+                for target_note in smaller_softs:
+                    for compare_note in larger_louds:
+                        if (abs(target_note[0] - compare_note[0]) < 15) and (abs((target_note[1]+i) - compare_note[1]) < 10):
+                            score += 1
+                            break
+                    else:
+                        for compare_note in larger_softs:
+                            if (abs(target_note[0] - compare_note[0]) < 15) and (abs((target_note[1]+i) - compare_note[1]) < 10):
+                                score += 1
+                                break
+                if score > best_score:
+                    best_score = score              
+            if (target_name == compare_name):
+                match_dict[target_name][compare_name] = 0
+            else:
+                match_dict[target_name][compare_name] = round(best_score/best_possible_score, 2) #distance_sum]
+
+    match_df = pd.DataFrame(match_dict)
+    print(match_df.shape)
+    match_df.to_csv('match_df.csv')
+
 def new_sort_songs(dict):
     threshold = match_threshold
     song_types = {}
@@ -559,9 +651,9 @@ def create_song_album_from_df(dicty_list, filename: string):
                     break
                 if (data[j][i] > intro_onset):
                     # print(f'checking a new pixel at column: {i}')
-                    line_dict = check_for_thread(data, j, i, rows, columns, intro_threshold, intro_max, intro_min_length, intro_max_length)
+                    line_dict = check_for_thread_strict(data, j, i, rows, columns, intro_threshold, intro_max, intro_min_length, intro_max_length)
                     if line_dict['length'] > intro_min_length:
-                        post_notes = check_for_posts(data, post_threshold, post_onset, i, columns, rows)
+                        post_notes = check_for_posts(data, post_threshold, post_onset, i, columns, rows, loud_post_threshold)
                         #cut the song out and add it to album
                         song_album.append(add_song_to_album(data, i, columns, post_notes, line_dict))
                         # if it has enough post_notes, skip the width of a song and continue on
@@ -584,10 +676,19 @@ def load_df(file:string):
     dicty_list = df.to_dict('records')
     for dictionary in dicty_list:
         dictionary.pop('Unnamed: 0')
-    for dictionary in dicty_list:
-        str = '[' + dictionary['post locs'] + ']'
-        new_list = ast.literal_eval(str)
-        dictionary['post locs'] = new_list
+
+        print(dictionary['soft locs'])
+        print(type(dictionary['soft locs']))
+        str1 = '[' + dictionary['soft locs'] + ']'
+        new_list1 = ast.literal_eval(str1)
+        print(f'after ast.literl...type is now... {type(new_list1)}')
+        dictionary['soft locs'] = new_list1
+
+        print(dictionary['loud locs'])
+        print(type(dictionary['loud locs']))
+        str2 = '[' + dictionary['loud locs'] + ']'
+        new_list2 = ast.literal_eval(str2)
+        dictionary['loud locs'] = new_list2
     # print(dicty_list)
 
     return dicty_list
@@ -633,9 +734,10 @@ post_max = -60
 post_min_length = 5
 post_max_length = 15
 post_jumps = 1
+loud_post_threshold = -45
 
-clumping_threshold = 0.3 #this is the threshold for combining ST categories based on a ratio of average match scores
-match_threshold = 0.9 #this is the matchscore cutoff for deciding whether a ST gets its own category
+clumping_threshold = 0.2 #this is the threshold for combining ST categories based on a ratio of average match scores
+match_threshold = 0.76 #this is the matchscore cutoff for deciding whether a ST gets its own category
 
 
 
@@ -730,9 +832,9 @@ match_threshold = 0.9 #this is the matchscore cutoff for deciding whether a ST g
 # create_song_album_from_df(dicty_list, filename)
 
 dicty_list = load_df('new_df.csv')
-new_count_matches(dicty_list)
+count_both_matches(dicty_list)
 
-# match_dicty = load_match_df('match_df.csv')
-# song_types = new_sort_songs(match_dicty)
-# song_types = relabel_song_types(song_types)
-# make_selection_table(song_types)
+match_dicty = load_match_df('match_df.csv')
+song_types = new_sort_songs(match_dicty)
+song_types = relabel_song_types(song_types)
+make_selection_table(song_types)
