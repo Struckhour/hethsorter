@@ -197,7 +197,7 @@ def check_for_thread_strict(array, row, column, rows, columns, threshold, max_th
         while (length < stop_length):
             next_value = -80
             new_row = 0
-            for i in [0, -1, 1]:
+            for i in [0, -1, 1, -2, 2]:
                 if (array[row + i, column + length] > next_value):
                     next_value = array[row + i, column + length]
                     new_row = row + i
@@ -208,15 +208,15 @@ def check_for_thread_strict(array, row, column, rows, columns, threshold, max_th
                 length += 1
             else:
                 if (length >= min_length) and (max(line_values) > max_threshold):
-                    print('medium thread')
-                    print(line_values)
+                    # print('medium thread')
+                    # print(line_values)
                     return {'length': length, 'onset time': column, 'onset freq': start_row}
                 else:
                     # print(f'did not qualify. length: {length}, max value: {max(line_values)}, line values: {line_values}')
                     return {'length': 0}
         if max(line_values) > max_threshold:
-            print('max line!')
-            print(line_values)
+            # print('max line!')
+            # print(line_values)
             return {'length': length, 'onset time': column, 'onset freq': start_row}
         else:
             # print('max value was not above threshold')
@@ -230,19 +230,19 @@ def check_for_posts(array, post_thresh:float, post_onset:float, column:int, colu
     k = column + 10
     post_notes = []
         # Check for post introductory portion (2 lines somewhere after the intro note)
-    while k < (column + 70) and (k < columns - 10):
+    while k < (column + 70) and (k < columns - post_min_length):
         l = 0
         while l < rows:
-            if (array[l][k] > post_onset):
+            if (array[l][k] > post_onset) and (l > 50):
                 unique = True
                 for post_note in post_notes:
-                    if (l < post_note[0] + 20) and (l > post_note[0] - 20) and (k - start < post_note[1] + 10):
+                    if (l < post_note[0] + 20) and (l > post_note[0] - 20) and ((k - start) < (post_note[1] + post_note[2] + 5)):
                         unique = False
                 if unique:
-                    line_dict = check_for_thread(array, l, k, rows, columns, post_thresh, post_max, post_min_length, post_max_length)
+                    line_dict = check_for_thread_strict(array, l, k, rows, columns, post_thresh, post_max, post_min_length, post_max_length)
                     if line_dict['length'] >= post_min_length:
                         post_notes.append([line_dict['onset freq'], line_dict['onset time'] - start, line_dict['length']])
-                        l += 9
+                        l += 19
             l += 1
         k += 1
     return post_notes
@@ -346,7 +346,6 @@ def count_matches(album):
         match_dict[target_name] = {}
         for compare_song in album:
             compare_name = str(compare_song['intro freq']) + ';' + str(compare_song['intro time'])
-            print(f'comparing {target_name} to {compare_name}')
             #figure out which one has the most lines and how many
             total_notes_1 = len(target_song['post locs'])
             total_notes_2 = len(compare_song['post locs'])
@@ -366,6 +365,47 @@ def count_matches(album):
             else:
                 match_dict[target_name][compare_name] = round(best_score/max_songs, 2)
     print(match_dict)
+
+    match_df = pd.DataFrame(match_dict)
+    print(match_df.shape)
+    match_df.to_csv('match_df.csv')
+
+
+def new_count_matches(album):
+    match_dict = {}
+    for target_song in album:
+        target_name = str(target_song['intro freq']) + ';' + str(target_song['intro time'])
+        match_dict[target_name] = {}
+        for compare_song in album:
+            compare_name = str(compare_song['intro freq']) + ';' + str(compare_song['intro time'])
+            #figure out which one has the most lines and how many
+            smaller_song = []
+            larger_song = []
+            if len(target_song['post locs']) >= len(compare_song['post locs']):
+                larger_song_backup = target_song['post locs']
+                smaller_song = compare_song['post locs']
+            else:
+                smaller_song = target_song['post locs']
+                larger_song_backup = compare_song['post locs']
+            less_songs = len(smaller_song)
+            best_score = 0
+            
+            #this the list of frames to shift left or right to find the best matches
+            for i in [-5, 0, 5]:
+                larger_song = larger_song_backup.copy()
+                matches = 0
+                for target_note in smaller_song:
+                    for compare_note in larger_song:
+                        if (abs(target_note[0] - compare_note[0]) < 15) and (abs((target_note[1]+i) - compare_note[1]) < 10):
+                            matches += 1
+                            # larger_song.remove(compare_note)
+                            break
+                if matches > best_score:
+                    best_score = matches                
+            if (target_name == compare_name):
+                match_dict[target_name][compare_name] = 0
+            else:
+                match_dict[target_name][compare_name] = round(best_score/less_songs, 2)
 
     match_df = pd.DataFrame(match_dict)
     print(match_df.shape)
@@ -513,7 +553,7 @@ def create_song_album_from_df(dicty_list, filename: string):
                 if i >= dicty['intro column'] + 10:
                     break
                 if (data[j][i] > intro_onset):
-                    print(f'checking a new pixel at column: {i}')
+                    # print(f'checking a new pixel at column: {i}')
                     line_dict = check_for_thread(data, j, i, rows, columns, intro_threshold, intro_max, intro_min_length, intro_max_length)
                     if line_dict['length'] > intro_min_length:
                         post_notes = check_for_posts(data, post_threshold, post_onset, i, columns, rows)
@@ -572,37 +612,31 @@ def load_match_df(file:string):
 # CODE TO RUN
 
     # VARIABLES
-filename = 'twominute'
+filename = 'tenmin'
 
-intro_onset = -60
-intro_threshold = -55
+intro_onset = -65
+intro_threshold = -60
 intro_max = -45
 intro_min_length = 11
 intro_max_length = 17
 intro_jumps = 1
-diff_threshold = 7
+diff_threshold = 15
 
-post_onset = -60
+post_onset = -65
 post_threshold = -60
-post_max = -55
+post_max = -60
 post_min_length = 5
-post_max_length = 12
+post_max_length = 15
 post_jumps = 1
 
-clumping_threshold = 0.2 #this is the threshold for combining ST categories based on a ratio of average match scores
+clumping_threshold = 0.3 #this is the threshold for combining ST categories based on a ratio of average match scores
 match_threshold = 0.9 #this is the matchscore cutoff for deciding whether a ST gets its own category
 
 
-# store_an_array('tenmin', 177, 120)
+
 
     # MAKE A SEGMENT AND SAVE IT AS A FILE
-# data = fourier('tenmin.wav')
 
-
-# new_seg = make_segment(data, 170, 140)
-# print(np.shape(new_seg))
-# with h5py.File('twominute.h5', 'w') as hf:
-#     hf.create_dataset("twominute_dataset", data=new_seg)
 
 
 
@@ -618,11 +652,11 @@ match_threshold = 0.9 #this is the matchscore cutoff for deciding whether a ST g
     # SAVE THE WHOLE SPECTROGRAM OF AN ARRAY
 # save_whole_spect(data, 'twentysecfig')
 
-    # LOAD H5 TO NP ARRAY
+    # LOAD H5 TO NP ARRAY and DISPLAY A SEGMENT
 # with h5py.File(filename + '.h5', 'r') as hf:
 #     data = hf[filename + '_dataset'][:]
 # print(np.shape(data))
-# data = make_segment(data, 128, 4)
+# data = make_segment(data, 433, 1)
 # display_spect(data)
 
     #TEST NEW FUNC ON ONE LITTLE SEGMENT
@@ -650,28 +684,50 @@ match_threshold = 0.9 #this is the matchscore cutoff for deciding whether a ST g
 # df.to_csv('1test.csv')
 # display_spect(seg)
 
-# h5_to_album(filename)
-
-dicty_list = load_df('df.csv')
-create_song_album_from_df(dicty_list, filename)
-
-dicty_list = load_df('new_df.csv')
-count_matches(dicty_list)
-
-
-
 # csv_filename = 'match_df.csv'
 # with open(csv_filename) as f:
 #     reader = csv.DictReader(f)
 #     for row in reader:
 #         print(f'this is a new row: {row}')
 
+# store_an_array('tenmin', 177, 120)
+# new_seg = make_segment(data, 170, 140)
 
-match_dicty = load_match_df('match_df.csv')
-song_types = new_sort_songs(match_dicty)
-song_types = relabel_song_types(song_types)
-make_selection_table(song_types)
 
+
+
+
+
+
+
+
+# ALL NEEDED CODE BELONGS BELOW HERE IN ORDER
+
+#STORE THE WAV AS AN H5 FILE. BE AWARE, FOURIER SLICES OFF THE BOTTOM AND TOP
+# data = fourier(filename + '.wav')
+# print(np.shape(data))
+# with h5py.File(filename + '.h5', 'w') as hf:
+#     hf.create_dataset(filename + "_dataset", data=data)
+
+
+# #CUT ARRAY INTO CHUNKS
 # with h5py.File(filename + '.h5', 'r') as hf:
 #     data = hf[filename + '_dataset'][:]
 # cut_array_into_specs(data, 'chunks', 20)
+
+
+#FIRST PASS
+# h5_to_album(filename)
+
+
+#SECOND PASS
+# dicty_list = load_df('df.csv')
+# create_song_album_from_df(dicty_list, filename)
+
+dicty_list = load_df('new_df.csv')
+new_count_matches(dicty_list)
+
+# match_dicty = load_match_df('match_df.csv')
+# song_types = new_sort_songs(match_dicty)
+# song_types = relabel_song_types(song_types)
+# make_selection_table(song_types)
