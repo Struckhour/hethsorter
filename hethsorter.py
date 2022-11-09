@@ -193,10 +193,11 @@ def check_for_thread(array, row, column, rows, columns, threshold, max_threshold
 def check_for_thread_strict(array, row, column, rows, columns, threshold, max_threshold, min_length, stop_length):
     length = 1
     line_values = []
+    line_freqs = []
     start_row = row
     prev_value = array[row, column]
     line_values.append(prev_value)
-    if (row > (stop_length)) and (row < (rows - stop_length)) and (column < columns - stop_length):
+    if (row > (2*stop_length)) and (row < (rows - 2*stop_length)) and (column < columns - stop_length):
         while (length < stop_length):
             next_value = -80
             new_row = 0
@@ -206,6 +207,7 @@ def check_for_thread_strict(array, row, column, rows, columns, threshold, max_th
                     new_row = row + i
             if (array[new_row, column + length] > threshold) and (abs(array[new_row, column + length] - prev_value) < diff_threshold):
                 line_values.append(array[new_row, column + length])
+                line_freqs.append(new_row)
                 prev_value = array[new_row, column + length]
                 row = new_row
                 length += 1
@@ -458,7 +460,7 @@ def count_both_matches(album):
             smaller_louds = []
             larger_softs = []
             larger_louds = []
-            if len(target_song['loud locs']) + len(target_song['soft locs']) >= len(compare_song['loud locs']) + len(compare_song['soft locs']):
+            if 3*len(target_song['loud locs']) + len(target_song['soft locs']) >= 3*len(compare_song['loud locs']) + len(compare_song['soft locs']):
                 larger_softs_backup = target_song['soft locs']
                 smaller_louds_backup = compare_song['loud locs']
                 larger_louds_backup = target_song['loud locs']
@@ -468,7 +470,7 @@ def count_both_matches(album):
                 larger_softs_backup = compare_song['soft locs']
                 smaller_louds_backup = target_song['loud locs']
                 larger_louds_backup = compare_song['loud locs']
-            best_possible_score = (len(smaller_louds_backup) * 2) + len(smaller_softs_backup)
+            best_possible_score = (len(smaller_louds_backup) * 3) + len(smaller_softs_backup)
             best_score = 0
             #this the list of frames to shift left or right to find the best matches
             for i in [0, 0, 0]:
@@ -480,7 +482,7 @@ def count_both_matches(album):
                 for target_note in smaller_louds:
                     for compare_note in larger_louds:
                         if (abs(target_note[0] - compare_note[0]) < 15) and (abs((target_note[1]+i) - compare_note[1]) < 10):
-                            score += 2
+                            score += 3
                             break
                     else:
                         for compare_note in larger_softs:
@@ -502,7 +504,7 @@ def count_both_matches(album):
             if (target_name == compare_name):
                 match_dict[target_name][compare_name] = 0
             else:
-                match_dict[target_name][compare_name] = round(best_score/best_possible_score, 2) #distance_sum]
+                match_dict[target_name][compare_name] = round(best_score/best_possible_score, 5) #distance_sum]
 
     match_df = pd.DataFrame(match_dict)
     print(match_df.shape)
@@ -587,7 +589,8 @@ def new_sort_songs(dict):
     for category in list(song_types):
         if song_types[category] == 'delete':
             song_types.pop(category)
-    print(f'stage two: {song_types}')
+    for type in song_types:
+        print(f'{type}: {song_types[type]}')
     return song_types
 
 def relabel_song_types(dict):
@@ -718,26 +721,26 @@ def load_match_df(file:string):
 # CODE TO RUN
 
     # VARIABLES
-filename = 'tenmin'
+filename = 'July 9 Chickahominy 2 80-90'
 
-intro_onset = -65
-intro_threshold = -60
-intro_max = -45
+intro_onset = -45
+intro_threshold = -40
+intro_max = -30
 intro_min_length = 11
 intro_max_length = 17
 intro_jumps = 1
 diff_threshold = 15
 
-post_onset = -65
-post_threshold = -60
-post_max = -60
+post_onset = -50
+post_threshold = -45
+post_max = -35
 post_min_length = 5
 post_max_length = 15
 post_jumps = 1
-loud_post_threshold = -45
+loud_post_threshold = -25
 
-clumping_threshold = 0.2 #this is the threshold for combining ST categories based on a ratio of average match scores
-match_threshold = 0.76 #this is the matchscore cutoff for deciding whether a ST gets its own category
+clumping_threshold = 0.1 #this is the threshold for combining ST categories based on a ratio of average match scores
+match_threshold = 0.7 #this is the matchscore cutoff for deciding whether a ST gets its own category
 
 
 
@@ -820,7 +823,7 @@ match_threshold = 0.76 #this is the matchscore cutoff for deciding whether a ST 
 # #CUT ARRAY INTO CHUNKS
 # with h5py.File(filename + '.h5', 'r') as hf:
 #     data = hf[filename + '_dataset'][:]
-# cut_array_into_specs(data, 'chunks', 20)
+# cut_array_into_specs(data, filename+'_chunks', 20)
 
 
 #FIRST PASS
@@ -834,7 +837,7 @@ match_threshold = 0.76 #this is the matchscore cutoff for deciding whether a ST 
 dicty_list = load_df('new_df.csv')
 count_both_matches(dicty_list)
 
-match_dicty = load_match_df('match_df.csv')
-song_types = new_sort_songs(match_dicty)
-song_types = relabel_song_types(song_types)
-make_selection_table(song_types)
+# match_dicty = load_match_df('match_df.csv')
+# song_types = new_sort_songs(match_dicty)
+# song_types = relabel_song_types(song_types)
+# make_selection_table(song_types)
