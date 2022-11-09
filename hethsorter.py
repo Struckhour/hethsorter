@@ -3,6 +3,7 @@
 #each pixel/column is 0.023219814 seconds long 
 
 from math import floor
+import statistics
 import string
 import pandas as pd
 import numpy as np
@@ -215,14 +216,14 @@ def check_for_thread_strict(array, row, column, rows, columns, threshold, max_th
                 if (length >= min_length) and (max(line_values) > max_threshold):
                     # print('medium thread')
                     # print(line_values)
-                    return {'length': length, 'onset time': column, 'onset freq': start_row, 'max db': max(line_values)}
+                    return {'length': length, 'onset time': column, 'onset freq': start_row, 'max db': max(line_values), 'mean freq': round(statistics.mean(line_freqs), 2)}
                 else:
                     # print(f'did not qualify. length: {length}, max value: {max(line_values)}, line values: {line_values}')
                     return {'length': 0}
         if max(line_values) > max_threshold:
             # print('max line!')
             # print(line_values)
-            return {'length': length, 'onset time': column, 'onset freq': start_row, 'max db': max(line_values)}
+            return {'length': length, 'onset time': column, 'onset freq': start_row, 'max db': max(line_values), 'mean freq': round(statistics.mean(line_freqs), 2)}
         else:
             # print('max value was not above threshold')
             return {'length': 0}
@@ -247,7 +248,7 @@ def check_for_posts(array, post_thresh:float, post_onset:float, column:int, colu
                 if unique:
                     line_dict = check_for_thread_strict(array, l, k, rows, columns, post_thresh, post_max, post_min_length, post_max_length)
                     if (line_dict['length'] >= post_min_length) and (line_dict['max db'] > loud_post_threshold):
-                        loud_notes.append([line_dict['onset freq'], line_dict['onset time'] - start, line_dict['length']])
+                        loud_notes.append([line_dict['onset freq'], line_dict['onset time'] - start, line_dict['length'], line_dict['mean freq']])
                         l += 19
             l += 1
         k += 1
@@ -267,17 +268,17 @@ def check_for_posts(array, post_thresh:float, post_onset:float, column:int, colu
                 if unique:
                     line_dict = check_for_thread_strict(array, l, k, rows, columns, post_thresh, post_max, post_min_length, post_max_length)
                     if (line_dict['length'] >= post_min_length) and (line_dict['max db'] <= loud_post_threshold):
-                        soft_notes.append([line_dict['onset freq'], line_dict['onset time'] - start, line_dict['length']])
+                        soft_notes.append([line_dict['onset freq'], line_dict['onset time'] - start, line_dict['length'], line_dict['mean freq']])
                         l += 5
                     elif (line_dict['length'] >= post_min_length) and (line_dict['max db'] > loud_post_threshold):
-                        loud_notes.append([line_dict['onset freq'], line_dict['onset time'] - start, line_dict['length']])
+                        loud_notes.append([line_dict['onset freq'], line_dict['onset time'] - start, line_dict['length'], line_dict['mean freq']])
                         l += 5
             l += 1
         k += 1
     if len(soft_notes) < 1:
-        soft_notes.append([0,0,0])
+        soft_notes.append([0,0,0,0])
     if len(loud_notes) < 1:
-        loud_notes.append([0,0,0])
+        loud_notes.append([0,0,0,0])
     return {'soft notes': soft_notes, 'loud notes': loud_notes}
 
 def add_song_to_album(array, column, columns, post_notes, line_dict):
@@ -473,7 +474,7 @@ def count_both_matches(album):
             best_possible_score = (len(smaller_louds_backup) * 3) + len(smaller_softs_backup)
             best_score = 0
             #this the list of frames to shift left or right to find the best matches
-            for i in [0, 0, 0]:
+            for i in [0]:
                 smaller_louds = smaller_louds_backup.copy()
                 larger_louds = larger_louds_backup.copy()
                 larger_softs = larger_softs_backup.copy()
@@ -481,22 +482,22 @@ def count_both_matches(album):
                 score = 0
                 for target_note in smaller_louds:
                     for compare_note in larger_louds:
-                        if (abs(target_note[0] - compare_note[0]) < 15) and (abs((target_note[1]+i) - compare_note[1]) < 10):
+                        if (abs(target_note[3] - compare_note[3]) < 30) and (abs((target_note[1]+i) - compare_note[1]) < 10):
                             score += 3
                             break
                     else:
                         for compare_note in larger_softs:
-                            if (abs(target_note[0] - compare_note[0]) < 15) and (abs((target_note[1]+i) - compare_note[1]) < 10):
+                            if (abs(target_note[3] - compare_note[3]) < 30) and (abs((target_note[1]+i) - compare_note[1]) < 10):
                                 score += 1
                                 break
                 for target_note in smaller_softs:
                     for compare_note in larger_louds:
-                        if (abs(target_note[0] - compare_note[0]) < 15) and (abs((target_note[1]+i) - compare_note[1]) < 10):
+                        if (abs(target_note[3] - compare_note[3]) < 30) and (abs((target_note[1]+i) - compare_note[1]) < 10):
                             score += 1
                             break
                     else:
                         for compare_note in larger_softs:
-                            if (abs(target_note[0] - compare_note[0]) < 15) and (abs((target_note[1]+i) - compare_note[1]) < 10):
+                            if (abs(target_note[3] - compare_note[3]) < 30) and (abs((target_note[1]+i) - compare_note[1]) < 10):
                                 score += 1
                                 break
                 if score > best_score:
@@ -504,7 +505,7 @@ def count_both_matches(album):
             if (target_name == compare_name):
                 match_dict[target_name][compare_name] = 0
             else:
-                match_dict[target_name][compare_name] = round(best_score/best_possible_score, 5) #distance_sum]
+                match_dict[target_name][compare_name] = round(best_score/best_possible_score - 0.01 * abs(target_song['post size'] - compare_song['post size']), 5)
 
     match_df = pd.DataFrame(match_dict)
     print(match_df.shape)
@@ -641,7 +642,7 @@ def create_song_album_from_df(dicty_list, filename: string):
     with h5py.File(filename + '.h5', 'r') as hf:
         data = hf[filename + '_dataset'][:]
     song_album = []
-    os.mkdir('new_' + filename)
+    # os.mkdir('new_' + filename)
     i = dicty_list[0]['intro column']
     rows = len(data)
     for dicty in dicty_list:
@@ -669,7 +670,7 @@ def create_song_album_from_df(dicty_list, filename: string):
                 j += 1            
             i += 1   
         #save a bunch of spectrograms
-    save_images(song_album, 'new_' + filename)
+    # save_images(song_album, 'new_' + filename)
     #save the album as a dataframe and then csv
     save_df(song_album, 'new_df')
     #compare all songs to each other and save csv
@@ -831,8 +832,8 @@ match_threshold = 0.7 #this is the matchscore cutoff for deciding whether a ST g
 
 
 #SECOND PASS
-# dicty_list = load_df('df.csv')
-# create_song_album_from_df(dicty_list, filename)
+dicty_list = load_df('df.csv')
+create_song_album_from_df(dicty_list, filename)
 
 dicty_list = load_df('new_df.csv')
 count_both_matches(dicty_list)
