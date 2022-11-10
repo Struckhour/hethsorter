@@ -15,6 +15,7 @@ import ast
 import librosa
 import librosa.display
 import IPython.display as ipd
+import shutil
 
 from itertools import cycle
 
@@ -95,11 +96,11 @@ def cut_array_into_specs(array, folder: string, length: float):
     while column < columns:
         print(column)
         song_name = str(round(column * 0.023219814, 2))
-        bracket = song_name + ' - ' + str(round((column + length) * 0.023219814, 2))
+        song_title = song_name + ' - ' + str(round((column + length) * 0.023219814, 2))
         print(song_name)
         if ((column + length) < columns):
             chunk = array[:, column:column + length]
-            save_spect_from_array(chunk, song_name, folder, length, bracket)
+            save_spect_from_array(chunk, song_name, folder, length, song_title)
         else:
             new_array = array[:, column:]
             shorter_cols = np.shape(new_array)[1]
@@ -108,9 +109,30 @@ def cut_array_into_specs(array, folder: string, length: float):
             col_diff = length - shorter_cols 
             zero_array[:,:-col_diff] = new_array
             new_array = zero_array
-            save_spect_from_array(new_array, song_name, folder, length, bracket)
+            save_spect_from_array(new_array, song_name, folder, length, song_title)
         column += length
         name_count += 1
+
+def make_ST_album(array, combo_df, folder: string, length: float):
+    os.mkdir(folder)
+    columns = len(array[0])
+    for index, row in combo_df.iterrows():
+        song_title = row.type + '-' + str(row['time']) + '-' + str(row['freq'])
+        column = row['intro column']
+        song_name = row.type + '-' + str(floor(row['time']))
+        if ((column + length) < columns):
+            chunk = array[:, column:column + length]
+            save_spect_from_array(chunk, song_name, folder, length, song_title)
+        else:
+            new_array = array[:, column:]
+            shorter_cols = np.shape(new_array)[1]
+            zero_array = np.zeros((623, length))
+            zero_array.fill(-80)
+            col_diff = length - shorter_cols 
+            zero_array[:,:-col_diff] = new_array
+            new_array = zero_array
+            save_spect_from_array(new_array, song_name, folder, length, song_title)
+        column += length
 
 
 def save_df(song_album, dfname):
@@ -325,17 +347,17 @@ def save_spect(dict, name, folder):
     plt.savefig(directory)
     plt.close()
 
-def save_spect_from_array(array, name, folder, length, bracket):
+def save_spect_from_array(array, file_name, folder, length, song_title):
     fig, ax = plt.subplots(figsize=(15, 7))
     img = librosa.display.specshow(array, x_axis=None, y_axis=None, sr=22050, ax=ax)
-    ax.set_title(bracket, fontsize=20)
+    ax.set_title(song_title, fontsize=20)
     ax.tick_params(direction='out', labelsize='medium', width=3, grid_alpha=0.9)
     ax.grid(True, linestyle='-.')
     fig.colorbar(img, ax=ax, format=f'%0.2f')
     fig.gca().set_yticks(range(0, 743-120, 25))
     fig.gca().set_ylabel("Row")
     fig.gca().set_xticks(range(0, length, floor(length/10)))
-    directory = folder + '/' + str(floor(float(name)))
+    directory = folder + '/' + file_name
     plt.savefig(directory)
     plt.close()
 
@@ -647,7 +669,10 @@ def relabel_song_types(dict):
     for dictpart in new_dict:
         print(f'{dictpart}: {new_dict[dictpart]}')
     return new_dict
-            
+
+# def make_new_photo_album(ST_dict, array, new_df):
+
+
 def make_selection_table(dicty):
     dict = dicty.copy()
     sel_table = []
@@ -733,6 +758,15 @@ def load_df(file:string):
 
     return dicty_list
 
+
+def load_sel_table(file:string):
+    df = pd.read_csv(file)
+    dicty_list = df.to_dict('records')
+    for dictionary in dicty_list:
+        dictionary.pop('Unnamed: 0')
+    print(dicty_list)
+    return dicty_list
+
 def load_match_df(file:string):
     df = pd.read_csv(file)
     dicty = df.to_dict('records')
@@ -744,6 +778,48 @@ def load_match_df(file:string):
     for i in range(len(dicty)):
         new_dict[key_list[i]] = dicty[i]
     return new_dict
+
+def create_master_df_and_album():
+
+    album = load_df('new_df.csv')
+    with h5py.File(filename + '.h5', 'r') as hf:
+        data = hf[filename + '_dataset'][:]
+    sel_table = load_sel_table('new_selection_table.csv')
+    ST_df = pd.DataFrame(sel_table)
+    album_df = pd.DataFrame(album)
+    album_df = album_df.rename(columns={'intro time': 'time', 'intro freq': 'freq'})
+    combo_df = ST_df.merge(album_df)
+    combo_df = combo_df.sort_values(by=['type'])
+    combo_df.to_csv('first_master' + '.csv')
+    ST_change_dict = {'current name': [], 'switch to': []}
+    ST_change_df = pd.DataFrame(ST_change_dict)
+    ST_change_df.to_csv('ST_change_file.csv')
+    make_ST_album(data, combo_df, 'STs', 70)
+
+def change_categories():
+    letter_names = ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H','I', 'J','K','L','M','N','O','P','Q','R','S','T','U','V','W','X','Y','Z']
+    change_file = pd.read_csv('ST_change_file.csv')
+    master_df = pd.read_csv('first_master.csv')
+    change_file = change_file.sort_values(by=['current name'])
+    print(change_file)
+    for change_index, change_row in change_file.iterrows():
+        for master_index, master_row in master_df.iterrows():
+            if master_row['type'] == change_row['current name']:
+                master_df.loc[master_index, 'type'] = change_row['switch to']
+    for letter in letter_names:
+        print(f'checking for: {letter}')
+        print(f'master_df.type: {master_df.type}')
+        if letter not in master_df.type.values:
+            for master_index, master_row in master_df.iterrows():
+                if ord(master_row['type']) > ord(letter):
+                    master_df.loc[master_index, 'type'] = chr(ord(master_df.loc[master_index, 'type'])-1)  
+    master_df = master_df.sort_values(by=['time'])
+    master_df.to_csv('final_master.csv')
+    with h5py.File(filename + '.h5', 'r') as hf:
+        data = hf[filename + '_dataset'][:]
+    if os.path.exists('STs'):
+        shutil.rmtree('STs')
+    make_ST_album(data, master_df, 'STs', 70)
 
     # CODE FOR FIGURING OUT THE FREQUENCIES OF EACH ROW
 # n_fft = 2048
@@ -776,7 +852,7 @@ post_max_length = 15
 post_jumps = 1
 loud_post_threshold = -25
 
-clumping_threshold = 0.05 #this is the threshold for combining ST categories based on a ratio of average match scores
+clumping_threshold = 0.1 #this is the threshold for combining ST categories based on a ratio of average match scores
 match_threshold = 0.8 #this is the matchscore cutoff for deciding whether a ST gets its own category
 
 
@@ -874,7 +950,10 @@ match_threshold = 0.8 #this is the matchscore cutoff for deciding whether a ST g
 # dicty_list = load_df('new_df.csv')
 # count_both_matches(dicty_list)
 
-match_dicty = load_match_df('match_df.csv')
-song_types = new_sort_songs(match_dicty)
-song_types = relabel_song_types(song_types)
-make_selection_table(song_types)
+# match_dicty = load_match_df('match_df.csv')
+# song_types = new_sort_songs(match_dicty)
+# song_types = relabel_song_types(song_types)
+# make_selection_table(song_types)
+# create_master_df_and_album()
+
+# change_categories()
