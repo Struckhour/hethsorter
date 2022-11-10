@@ -482,23 +482,47 @@ def count_both_matches(album):
                 score = 0
                 for target_note in smaller_louds:
                     for compare_note in larger_louds:
-                        if (abs(target_note[3] - compare_note[3]) < 30) and (abs((target_note[1]+i) - compare_note[1]) < 10):
+                        if (abs(target_note[3] - compare_note[3]) < 10) and (abs((target_note[1]+i) - compare_note[1]) < 6):
                             score += 3
+                            break
+                        elif (abs(target_note[3] - compare_note[3]) < 20) and (abs((target_note[1]+i) - compare_note[1]) < 8):
+                            score += 2.5
+                            break
+                        elif (abs(target_note[3] - compare_note[3]) < 30) and (abs((target_note[1]+i) - compare_note[1]) < 10):
+                            score += 2
                             break
                     else:
                         for compare_note in larger_softs:
-                            if (abs(target_note[3] - compare_note[3]) < 30) and (abs((target_note[1]+i) - compare_note[1]) < 10):
+                            if (abs(target_note[3] - compare_note[3]) < 10) and (abs((target_note[1]+i) - compare_note[1]) < 6):
                                 score += 1
+                                break
+                            elif (abs(target_note[3] - compare_note[3]) < 20) and (abs((target_note[1]+i) - compare_note[1]) < 8):
+                                score += .75
+                                break
+                            elif (abs(target_note[3] - compare_note[3]) < 30) and (abs((target_note[1]+i) - compare_note[1]) < 10):
+                                score += .5
                                 break
                 for target_note in smaller_softs:
                     for compare_note in larger_louds:
-                        if (abs(target_note[3] - compare_note[3]) < 30) and (abs((target_note[1]+i) - compare_note[1]) < 10):
+                        if (abs(target_note[3] - compare_note[3]) < 10) and (abs((target_note[1]+i) - compare_note[1]) < 6):
                             score += 1
+                            break
+                        elif (abs(target_note[3] - compare_note[3]) < 20) and (abs((target_note[1]+i) - compare_note[1]) < 8):
+                            score += .75
+                            break
+                        elif (abs(target_note[3] - compare_note[3]) < 30) and (abs((target_note[1]+i) - compare_note[1]) < 10):
+                            score += .5
                             break
                     else:
                         for compare_note in larger_softs:
-                            if (abs(target_note[3] - compare_note[3]) < 30) and (abs((target_note[1]+i) - compare_note[1]) < 10):
+                            if (abs(target_note[3] - compare_note[3]) < 10) and (abs((target_note[1]+i) - compare_note[1]) < 6):
                                 score += 1
+                                break
+                            elif (abs(target_note[3] - compare_note[3]) < 20) and (abs((target_note[1]+i) - compare_note[1]) < 8):
+                                score += .75
+                                break
+                            elif (abs(target_note[3] - compare_note[3]) < 30) and (abs((target_note[1]+i) - compare_note[1]) < 10):
+                                score += .5
                                 break
                 if score > best_score:
                     best_score = score              
@@ -832,8 +856,8 @@ match_threshold = 0.7 #this is the matchscore cutoff for deciding whether a ST g
 
 
 #SECOND PASS
-dicty_list = load_df('df.csv')
-create_song_album_from_df(dicty_list, filename)
+# dicty_list = load_df('df.csv')
+# create_song_album_from_df(dicty_list, filename)
 
 dicty_list = load_df('new_df.csv')
 count_both_matches(dicty_list)
