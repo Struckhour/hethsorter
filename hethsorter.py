@@ -152,7 +152,7 @@ def save_df(song_album, dfname):
         datadict['post size'].append(len(entry['soft notes']) + len(entry['loud notes']))
 
     df = pd.DataFrame(datadict)
-    df.to_csv(dfname + '.csv')
+    df.to_csv(dfname + '.csv', index=False)
 
 def check_for_thread(array, row, column, rows, columns, threshold, max_threshold, min_length, stop_length):
     length_count = 0
@@ -557,6 +557,96 @@ def count_both_matches(album):
     print(match_df.shape)
     match_df.to_csv('match_df.csv')
 
+def count_both_matches_from_template(album):
+    final_df = pd.read_csv('second_pass_df.csv', index_col=False)
+    master_dict = load_df('final_master.csv')
+    for dict in master_dict:
+        dict['soft locs'] = dict['soft locs'][0]
+        dict['loud locs'] = dict['loud locs'][0]
+    print(master_dict[0]['soft locs'])
+    print(album[0]['soft locs'][0])
+
+    match_dict = {}
+    for target_song in album:
+        for compare_song in master_dict:
+            #figure out which one has the most lines and how many
+            smaller_softs = []
+            smaller_louds = []
+            larger_softs = []
+            larger_louds = []
+            if 3*len(target_song['loud locs']) + len(target_song['soft locs']) >= 3*len(compare_song['loud locs']) + len(compare_song['soft locs']):
+                larger_softs_backup = target_song['soft locs']
+                smaller_louds_backup = compare_song['loud locs']
+                larger_louds_backup = target_song['loud locs']
+                smaller_softs_backup = compare_song['soft locs']
+            else:
+                smaller_softs_backup = target_song['soft locs']
+                larger_softs_backup = compare_song['soft locs']
+                smaller_louds_backup = target_song['loud locs']
+                larger_louds_backup = compare_song['loud locs']
+            best_possible_score = (len(smaller_louds_backup) * 3) + len(smaller_softs_backup)
+            best_score = 0
+            best_cat = 'Z'
+            #this the list of frames to shift left or right to find the best matches
+            for i in [0]:
+                smaller_louds = smaller_louds_backup.copy()
+                larger_louds = larger_louds_backup.copy()
+                larger_softs = larger_softs_backup.copy()
+                smaller_softs = smaller_softs_backup.copy()
+                score = 0
+                for target_note in smaller_louds:
+                    for compare_note in larger_louds:
+                        if (abs(target_note[3] - compare_note[3]) < 10) and (abs((target_note[1]+i) - compare_note[1]) < 6):
+                            score += 3
+                            break
+                        elif (abs(target_note[3] - compare_note[3]) < 20) and (abs((target_note[1]+i) - compare_note[1]) < 8):
+                            score += 2.5
+                            break
+                        elif (abs(target_note[3] - compare_note[3]) < 30) and (abs((target_note[1]+i) - compare_note[1]) < 10):
+                            score += 2
+                            break
+                    else:
+                        for compare_note in larger_softs:
+                            if (abs(target_note[3] - compare_note[3]) < 10) and (abs((target_note[1]+i) - compare_note[1]) < 6):
+                                score += 1
+                                break
+                            elif (abs(target_note[3] - compare_note[3]) < 20) and (abs((target_note[1]+i) - compare_note[1]) < 8):
+                                score += .75
+                                break
+                            elif (abs(target_note[3] - compare_note[3]) < 30) and (abs((target_note[1]+i) - compare_note[1]) < 10):
+                                score += .5
+                                break
+                for target_note in smaller_softs:
+                    for compare_note in larger_louds:
+                        if (abs(target_note[3] - compare_note[3]) < 10) and (abs((target_note[1]+i) - compare_note[1]) < 6):
+                            score += 1
+                            break
+                        elif (abs(target_note[3] - compare_note[3]) < 20) and (abs((target_note[1]+i) - compare_note[1]) < 8):
+                            score += .75
+                            break
+                        elif (abs(target_note[3] - compare_note[3]) < 30) and (abs((target_note[1]+i) - compare_note[1]) < 10):
+                            score += .5
+                            break
+                    else:
+                        for compare_note in larger_softs:
+                            if (abs(target_note[3] - compare_note[3]) < 10) and (abs((target_note[1]+i) - compare_note[1]) < 6):
+                                score += 1
+                                break
+                            elif (abs(target_note[3] - compare_note[3]) < 20) and (abs((target_note[1]+i) - compare_note[1]) < 8):
+                                score += .75
+                                break
+                            elif (abs(target_note[3] - compare_note[3]) < 30) and (abs((target_note[1]+i) - compare_note[1]) < 10):
+                                score += .5
+                                break
+                if score > best_score:
+                    best_score = score
+                    best_cat = compare_song['type']              
+        target_song['type'] = best_cat
+
+    match_df = pd.DataFrame(match_dict)
+    print(match_df.shape)
+    match_df.to_csv('match_df.csv')
+
 def new_sort_songs(dict):
     threshold = match_threshold
     song_types = {}
@@ -698,7 +788,7 @@ def make_selection_table(dicty):
     print(sel_table)
     df = pd.DataFrame(sel_table)
     print(df)
-    df.to_csv('new_selection_table.csv')
+    df.to_csv('new_selection_table.csv', index=False)
 
 def create_song_album_from_df(dicty_list, filename: string):
     with h5py.File(filename + '.h5', 'r') as hf:
@@ -743,7 +833,6 @@ def load_df(file:string):
     df = pd.read_csv(file)
     dicty_list = df.to_dict('records')
     for dictionary in dicty_list:
-        dictionary.pop('Unnamed: 0')
 
         print(dictionary['soft locs'])
         print(type(dictionary['soft locs']))
@@ -765,17 +854,17 @@ def load_df(file:string):
 def load_sel_table(file:string):
     df = pd.read_csv(file)
     dicty_list = df.to_dict('records')
-    for dictionary in dicty_list:
-        dictionary.pop('Unnamed: 0')
+
     print(dicty_list)
     return dicty_list
 
 def load_match_df(file:string):
     df = pd.read_csv(file)
+    print(f'df: {df}')
     dicty = df.to_dict('records')
+    print(f'dicty: {dicty}')
     for dictionary in dicty:
         dictionary.pop('Unnamed: 0')
-
     key_list = (list(dicty[0]))
     new_dict = {}
     for i in range(len(dicty)):
@@ -792,10 +881,10 @@ def create_master_df_and_album():
     album_df = album_df.rename(columns={'intro time': 'time', 'intro freq': 'freq'})
     combo_df = ST_df.merge(album_df)
     combo_df = combo_df.sort_values(by=['type'])
-    combo_df.to_csv('first_master' + '.csv')
+    combo_df.to_csv('first_master' + '.csv', index=False)
     ST_change_dict = {'current name': [], 'switch to': []}
     ST_change_df = pd.DataFrame(ST_change_dict)
-    ST_change_df.to_csv('ST_change_file.csv')
+    ST_change_df.to_csv('ST_change_file.csv', index=False)
     make_ST_album(data, combo_df, 'STs', 70)
 
 def change_categories():
@@ -816,7 +905,7 @@ def change_categories():
                 if ord(master_row['type']) > ord(letter):
                     master_df.loc[master_index, 'type'] = chr(ord(master_df.loc[master_index, 'type'])-1)  
     master_df = master_df.sort_values(by=['time'])
-    master_df.to_csv('final_master.csv')
+    master_df.to_csv('final_master.csv', index=False)
     with h5py.File(filename + '.h5', 'r') as hf:
         data = hf[filename + '_dataset'][:]
     make_ST_album(data, master_df, 'STs', 70)
@@ -842,11 +931,24 @@ def first_pass():
     h5_to_album(filename)
 
 def second_pass():
-    dicty_list = load_df('first_pass_df.csv')
-    create_song_album_from_df(dicty_list, filename)
+    # dicty_list = load_df('first_pass_df.csv')
+    # create_song_album_from_df(dicty_list, filename)
+
+    # dicty_list = load_df('second_pass_df.csv')
+    # count_both_matches(dicty_list)
+
+    match_dicty = load_match_df('match_df.csv')
+    song_types = new_sort_songs(match_dicty)
+    song_types = relabel_song_types(song_types)
+    make_selection_table(song_types)
+    create_master_df_and_album()
+
+def second_pass_with_template():
+    # dicty_list = load_df('first_pass_df.csv')
+    # create_song_album_from_df(dicty_list, filename)
 
     dicty_list = load_df('second_pass_df.csv')
-    count_both_matches(dicty_list)
+    count_both_matches_from_template(dicty_list)
 
     match_dicty = load_match_df('match_df.csv')
     song_types = new_sort_songs(match_dicty)
@@ -957,7 +1059,7 @@ match_threshold = 0.8 #this is the matchscore cutoff for deciding whether a ST g
 
 # EXECUTE CODE BELOW HERE FOR INITIAL 10MIN OF A BIRD
 
-#fourier transform, stores h5 file, creates 20sec spectrograms. Have a look at thresholds.
+#fourier transform, stores h5 file, creates 20sec spectrograms. Have a look at thresholds. Takes ~40sec
 # set_up() 
 
 # #creates df.csv and folder of prospective spectrograms. delete rows and make changes to intro column in df.csv before second pass. Takes ~2min
@@ -978,7 +1080,7 @@ match_threshold = 0.8 #this is the matchscore cutoff for deciding whether a ST g
 # first_pass()
 
 # #creates new folder of spectrograms and new_df.csv. Then it compares songs, assigns categories, creates images sorted by ST, and creates master sheet. Takes ~2.5min
-# second_pass_with_template()
+second_pass_with_template()
 
 # #input any final ST changes such as "all Cs should be Bs". Creates new folder and new master sheet. Takes ~50sec
 # final_adjustments() 
