@@ -3,7 +3,6 @@
 #each pixel/column is 0.023219814 seconds long 
 
 from math import floor
-import statistics
 import string
 import pandas as pd
 import numpy as np
@@ -216,14 +215,14 @@ def check_for_thread_strict(array, row, column, rows, columns, threshold, max_th
                 if (length >= min_length) and (max(line_values) > max_threshold):
                     # print('medium thread')
                     # print(line_values)
-                    return {'length': length, 'onset time': column, 'onset freq': start_row, 'max db': max(line_values), 'mean freq': round(statistics.mean(line_freqs), 2)}
+                    return {'length': length, 'onset time': column, 'onset freq': start_row, 'max db': max(line_values), 'mean freq': round(np.mean(line_freqs), 2)}
                 else:
                     # print(f'did not qualify. length: {length}, max value: {max(line_values)}, line values: {line_values}')
                     return {'length': 0}
         if max(line_values) > max_threshold:
             # print('max line!')
             # print(line_values)
-            return {'length': length, 'onset time': column, 'onset freq': start_row, 'max db': max(line_values), 'mean freq': round(statistics.mean(line_freqs), 2)}
+            return {'length': length, 'onset time': column, 'onset freq': start_row, 'max db': max(line_values), 'mean freq': round(np.mean(line_freqs), 2)}
         else:
             # print('max value was not above threshold')
             return {'length': 0}
@@ -585,37 +584,49 @@ def new_sort_songs(dict):
     print(f'stage one: {song_types}')
 
     #stage 2: if any two groups belong together, collapse them together
-    for target_category in song_types:
-        score_within = 0
-        score_between = 0
-        if (song_types[target_category] != 'delete') and (len(song_types[target_category]) > 1):
-            for compare_category in song_types:
-                if song_types[compare_category] != 'delete' and (len(song_types[compare_category]) > 1):
-                    if target_category != compare_category:
-                        #calculate the score_within
-                        score_list = []
-                        for target_song in song_types[target_category]:
-                            for other_target_song in song_types[target_category]:
-                                if target_song != other_target_song:
-                                    score_list.append(dict[target_song][other_target_song])
-                        score_within = np.mean(score_list)
-                        #calculate the score between
-                        score_list = []
-                        for target_song in song_types[target_category]:
-                            for compare_song in song_types[compare_category]:
-                                if target_song != compare_song:
-                                    score_list.append(dict[target_song][compare_song])
-                        score_between = np.mean(score_list)
-                        #check if the scores are similar
-                        if abs(1 - (score_between/score_within)) < clumping_threshold:
-                            for song in song_types[compare_category]:
-                                song_types[target_category].append(song)
-                            song_types[compare_category] = 'delete'
+    found_match = True
+    while found_match:
+        found_match = False
+        for target_category in song_types:
+            best_score = 0
+            best_category = ''
+            score_within = 0
+            score_between = 0
+            if (song_types[target_category] != 'delete') and (len(song_types[target_category]) > 1):
+                #calculate the score_within
+                score_list = []
+                for target_song in song_types[target_category]:
+                    for other_target_song in song_types[target_category]:
+                        if target_song != other_target_song:
+                            score_list.append(dict[target_song][other_target_song])
+                score_within = np.mean(score_list)
+                for compare_category in song_types:
+                    if song_types[compare_category] != 'delete' and (len(song_types[compare_category]) > 1):
+                        if target_category != compare_category:
+                            #calculate the score between
+                            score_list = []
+                            for target_song in song_types[target_category]:
+                                for compare_song in song_types[compare_category]:
+                                    if target_song != compare_song:
+                                        score_list.append(dict[target_song][compare_song])
+                            score_between = np.mean(score_list)
+                            #check if score is the best
+                            if score_between > best_score:
+                                best_score = score_between
+                                best_category = compare_category
+            #check if the scores are similar
+            print(best_category)
+            print(type(best_category))
+            if (best_score > 0) and (abs(1 - (score_within/best_score)) < clumping_threshold):
+                for song in song_types[best_category]:
+                    song_types[target_category].append(song)
+                song_types[best_category] = 'delete'
+                found_match = True
     for category in list(song_types):
         if song_types[category] == 'delete':
             song_types.pop(category)
-    for type in song_types:
-        print(f'{type}: {song_types[type]}')
+    for song_type in song_types:
+        print(f'{song_type}: {song_types[song_type]}')
     return song_types
 
 def relabel_song_types(dict):
@@ -633,7 +644,8 @@ def relabel_song_types(dict):
         index = len(new_dict)
         new_dict[letter_names[index]] = dict[lowest_cat]
         dict[lowest_cat] = 'delete'
-    print(new_dict)
+    for dictpart in new_dict:
+        print(f'{dictpart}: {new_dict[dictpart]}')
     return new_dict
             
 def make_selection_table(dicty):
@@ -764,8 +776,8 @@ post_max_length = 15
 post_jumps = 1
 loud_post_threshold = -25
 
-clumping_threshold = 0.1 #this is the threshold for combining ST categories based on a ratio of average match scores
-match_threshold = 0.7 #this is the matchscore cutoff for deciding whether a ST gets its own category
+clumping_threshold = 0.05 #this is the threshold for combining ST categories based on a ratio of average match scores
+match_threshold = 0.8 #this is the matchscore cutoff for deciding whether a ST gets its own category
 
 
 
@@ -859,10 +871,10 @@ match_threshold = 0.7 #this is the matchscore cutoff for deciding whether a ST g
 # dicty_list = load_df('df.csv')
 # create_song_album_from_df(dicty_list, filename)
 
-dicty_list = load_df('new_df.csv')
-count_both_matches(dicty_list)
+# dicty_list = load_df('new_df.csv')
+# count_both_matches(dicty_list)
 
-# match_dicty = load_match_df('match_df.csv')
-# song_types = new_sort_songs(match_dicty)
-# song_types = relabel_song_types(song_types)
-# make_selection_table(song_types)
+match_dicty = load_match_df('match_df.csv')
+song_types = new_sort_songs(match_dicty)
+song_types = relabel_song_types(song_types)
+make_selection_table(song_types)
