@@ -78,8 +78,7 @@ def h5_to_album(file):
     save_images(song_album, file)
     #save the album as a dataframe and then csv
     print('saving csv...')
-    save_df(song_album, 'df')
-    #compare all songs to each other and save csv
+    save_df(song_album, 'first_pass_df')
 
 def save_images(song_album, file):
     for i in range(len(song_album)):
@@ -87,6 +86,8 @@ def save_images(song_album, file):
         save_spect(song_album[i], song_name, file)
 
 def cut_array_into_specs(array, folder: string, length: float):
+    if os.path.exists(folder):
+        shutil.rmtree(folder)
     os.mkdir(folder)
     length = floor(length * (1/0.023219814))
     columns = len(array[0])
@@ -97,6 +98,7 @@ def cut_array_into_specs(array, folder: string, length: float):
         print(column)
         song_name = str(round(column * 0.023219814, 2))
         song_title = song_name + ' - ' + str(round((column + length) * 0.023219814, 2))
+        song_name = str(floor(float(song_name)))
         print(song_name)
         if ((column + length) < columns):
             chunk = array[:, column:column + length]
@@ -114,6 +116,8 @@ def cut_array_into_specs(array, folder: string, length: float):
         name_count += 1
 
 def make_ST_album(array, combo_df, folder: string, length: float):
+    if os.path.exists(folder):
+        shutil.rmtree(folder)
     os.mkdir(folder)
     columns = len(array[0])
     for index, row in combo_df.iterrows():
@@ -322,7 +326,8 @@ def add_song_to_album(array, column, columns, post_notes, line_dict):
     # store the song
     return {"intro column": line_dict['onset time'], "intro time": round((line_dict['onset time']) * 0.023219814, 1), "intro freq": line_dict['onset freq'], "intro length":line_dict['length'], "array": new_array, "label": label, "soft notes": post_notes['soft notes'], "loud notes": post_notes['loud notes']}
 
-# CREATE AND DISPLAY SPECTROGRAM
+                                # FUNCTIONS FOR SAVING OR DISPLAYING SPECTROGRAMS
+
 def display_spect(array):
     fig, ax = plt.subplots(figsize=(15, 7))
     # img = librosa.display.specshow(array[1], x_axis='time', y_axis=None, sr=22050, ax=ax)
@@ -386,11 +391,7 @@ def store_an_array(file, start, duration):
     with h5py.File(str(duration) + 'seconds' + '.h5', 'w') as hf:
         hf.create_dataset(str(duration) + 'seconds' + "_dataset", data=new_seg)
 
-
-
-
-# CHECK NUMBER OF POST MATCHES BETWEEN SONGS
-    # song_album.append({"intro time": round((column-6) * 0.023219814, 1), "intro freq": row, "array": new_array, "label": label, "post notes": post_notes})
+                            #FUNCTION FOR CATEGORIZING STs
 
 def count_matches(album):
     match_dict = {}
@@ -703,7 +704,9 @@ def create_song_album_from_df(dicty_list, filename: string):
     with h5py.File(filename + '.h5', 'r') as hf:
         data = hf[filename + '_dataset'][:]
     song_album = []
-    # os.mkdir('new_' + filename)
+    if os.path.exists('new_' + filename):
+        shutil.rmtree('new_' + filename)
+    os.mkdir('new_' + filename)
     i = dicty_list[0]['intro column']
     rows = len(data)
     for dicty in dicty_list:
@@ -731,9 +734,9 @@ def create_song_album_from_df(dicty_list, filename: string):
                 j += 1            
             i += 1   
         #save a bunch of spectrograms
-    # save_images(song_album, 'new_' + filename)
+    save_images(song_album, 'new_' + filename)
     #save the album as a dataframe and then csv
-    save_df(song_album, 'new_df')
+    save_df(song_album, 'second_pass_df')
     #compare all songs to each other and save csv
 
 def load_df(file:string):
@@ -780,8 +783,7 @@ def load_match_df(file:string):
     return new_dict
 
 def create_master_df_and_album():
-
-    album = load_df('new_df.csv')
+    album = load_df('second_pass_df.csv')
     with h5py.File(filename + '.h5', 'r') as hf:
         data = hf[filename + '_dataset'][:]
     sel_table = load_sel_table('new_selection_table.csv')
@@ -817,9 +819,43 @@ def change_categories():
     master_df.to_csv('final_master.csv')
     with h5py.File(filename + '.h5', 'r') as hf:
         data = hf[filename + '_dataset'][:]
-    if os.path.exists('STs'):
-        shutil.rmtree('STs')
     make_ST_album(data, master_df, 'STs', 70)
+
+
+                    # WORKFLOW FUNCTIONS
+
+def set_up():
+    data = fourier(filename + '.wav')
+    print(np.shape(data))
+    with h5py.File(filename + '.h5', 'w') as hf:
+        hf.create_dataset(filename + "_dataset", data=data)
+
+
+    #CUT ARRAY INTO CHUNKS
+    with h5py.File(filename + '.h5', 'r') as hf:
+        data = hf[filename + '_dataset'][:]
+    cut_array_into_specs(data, filename+'_chunks', 20)
+
+#STORE THE WAV AS AN H5 FILE. BE AWARE, FOURIER SLICES OFF THE BOTTOM AND TOP
+
+def first_pass():
+    h5_to_album(filename)
+
+def second_pass():
+    dicty_list = load_df('first_pass_df.csv')
+    create_song_album_from_df(dicty_list, filename)
+
+    dicty_list = load_df('second_pass_df.csv')
+    count_both_matches(dicty_list)
+
+    match_dicty = load_match_df('match_df.csv')
+    song_types = new_sort_songs(match_dicty)
+    song_types = relabel_song_types(song_types)
+    make_selection_table(song_types)
+    create_master_df_and_album()
+
+def final_adjustments():
+    change_categories()
 
     # CODE FOR FIGURING OUT THE FREQUENCIES OF EACH ROW
 # n_fft = 2048
@@ -846,7 +882,7 @@ diff_threshold = 15
 
 post_onset = -50
 post_threshold = -45
-post_max = -35
+post_max = -40
 post_min_length = 5
 post_max_length = 15
 post_jumps = 1
@@ -859,8 +895,6 @@ match_threshold = 0.8 #this is the matchscore cutoff for deciding whether a ST g
 
 
     # MAKE A SEGMENT AND SAVE IT AS A FILE
-
-
 
 
     # SAVE DF TO CSV
@@ -921,39 +955,30 @@ match_threshold = 0.8 #this is the matchscore cutoff for deciding whether a ST g
 
 
 
+# EXECUTE CODE BELOW HERE FOR INITIAL 10MIN OF A BIRD
+
+#fourier transform, stores h5 file, creates 20sec spectrograms. Have a look at thresholds.
+# set_up() 
+
+# #creates df.csv and folder of prospective spectrograms. delete rows and make changes to intro column in df.csv before second pass. Takes ~2min
+# first_pass()
+
+# #creates new folder of spectrograms and new_df.csv. Then it compares songs, assigns categories, creates images sorted by ST, and creates master sheet. Takes ~2.5min
+# second_pass() 
+
+# #input any final ST changes such as "all Cs should be Bs". Creates new folder and new master sheet. Takes ~50sec
+# final_adjustments() 
 
 
+# EXECUTE CODE BELOW HERE FOR LATER RECORDINGS OF A BIRD
+#fourier transform, stores h5 file, creates 20sec spectrograms. Have a look at thresholds.
+# set_up() 
 
-# ALL NEEDED CODE BELONGS BELOW HERE IN ORDER
+# #creates df.csv and folder of prospective spectrograms. delete rows and make changes to intro column in df.csv before second pass. Takes ~2min
+# first_pass()
 
-#STORE THE WAV AS AN H5 FILE. BE AWARE, FOURIER SLICES OFF THE BOTTOM AND TOP
-# data = fourier(filename + '.wav')
-# print(np.shape(data))
-# with h5py.File(filename + '.h5', 'w') as hf:
-#     hf.create_dataset(filename + "_dataset", data=data)
+# #creates new folder of spectrograms and new_df.csv. Then it compares songs, assigns categories, creates images sorted by ST, and creates master sheet. Takes ~2.5min
+# second_pass_with_template()
 
-
-# #CUT ARRAY INTO CHUNKS
-# with h5py.File(filename + '.h5', 'r') as hf:
-#     data = hf[filename + '_dataset'][:]
-# cut_array_into_specs(data, filename+'_chunks', 20)
-
-
-#FIRST PASS
-# h5_to_album(filename)
-
-
-#SECOND PASS
-# dicty_list = load_df('df.csv')
-# create_song_album_from_df(dicty_list, filename)
-
-# dicty_list = load_df('new_df.csv')
-# count_both_matches(dicty_list)
-
-# match_dicty = load_match_df('match_df.csv')
-# song_types = new_sort_songs(match_dicty)
-# song_types = relabel_song_types(song_types)
-# make_selection_table(song_types)
-# create_master_df_and_album()
-
-# change_categories()
+# #input any final ST changes such as "all Cs should be Bs". Creates new folder and new master sheet. Takes ~50sec
+# final_adjustments() 
