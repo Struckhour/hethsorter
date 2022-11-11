@@ -121,9 +121,9 @@ def make_ST_album(array, combo_df, folder: string, length: float):
     os.mkdir(folder)
     columns = len(array[0])
     for index, row in combo_df.iterrows():
-        song_title = row.type + '-' + str(row['time']) + '-' + str(row['freq'])
+        song_title = row['ID'] + '-' + str(row['time']) + '-' + str(row['freq'])
         column = row['intro column']
-        song_name = row.type + '-' + str(floor(row['time']))
+        song_name = row['ID'] + '-' + str(floor(row['time']))
         if ((column + length) < columns):
             chunk = array[:, column:column + length]
             save_spect_from_array(chunk, song_name, folder, length, song_title)
@@ -423,7 +423,7 @@ def count_matches(album):
 
     match_df = pd.DataFrame(match_dict)
     print(match_df.shape)
-    match_df.to_csv('match_df.csv')
+    match_df.to_csv('match_df-' + filename + '.csv')
 
 
 def new_count_matches(album):
@@ -469,7 +469,7 @@ def new_count_matches(album):
 
     match_df = pd.DataFrame(match_dict)
     print(match_df.shape)
-    match_df.to_csv('match_df.csv')
+    match_df.to_csv('match_df-' + filename + '.csv')
 
 def count_both_matches(album):
     match_dict = {}
@@ -555,19 +555,20 @@ def count_both_matches(album):
 
     match_df = pd.DataFrame(match_dict)
     print(match_df.shape)
-    match_df.to_csv('match_df.csv')
+    match_df.to_csv('match_df' + filename + '.csv')
 
 def count_both_matches_from_template(album):
-    final_df = pd.read_csv('second_pass_df.csv', index_col=False)
-    master_dict = load_df('final_master.csv')
+    final_df = pd.read_csv('second_pass_df' + filename + '.csv', index_col=False)
+    master_dict = load_df('final_master-' + filename + '.csv')
     for dict in master_dict:
         dict['soft locs'] = dict['soft locs'][0]
         dict['loud locs'] = dict['loud locs'][0]
     print(master_dict[0]['soft locs'])
     print(album[0]['soft locs'][0])
-
-    match_dict = {}
+    cat_list = []
     for target_song in album:
+        best_score = 0
+        best_cat = 'Z'
         for compare_song in master_dict:
             #figure out which one has the most lines and how many
             smaller_softs = []
@@ -585,8 +586,6 @@ def count_both_matches_from_template(album):
                 smaller_louds_backup = target_song['loud locs']
                 larger_louds_backup = compare_song['loud locs']
             best_possible_score = (len(smaller_louds_backup) * 3) + len(smaller_softs_backup)
-            best_score = 0
-            best_cat = 'Z'
             #this the list of frames to shift left or right to find the best matches
             for i in [0]:
                 smaller_louds = smaller_louds_backup.copy()
@@ -638,14 +637,17 @@ def count_both_matches_from_template(album):
                             elif (abs(target_note[3] - compare_note[3]) < 30) and (abs((target_note[1]+i) - compare_note[1]) < 10):
                                 score += .5
                                 break
+                score = score/best_possible_score
                 if score > best_score:
+                    print(f'best score is: {best_score}')
+                    print(f'score: {score} for {compare_song}, best score: {best_score}')
                     best_score = score
-                    best_cat = compare_song['type']              
-        target_song['type'] = best_cat
+                    best_cat = compare_song['ID']
+                    print(f'changing to {best_cat}')              
+        cat_list.append(best_cat)
+    final_df['ST'] = cat_list
+    final_df.to_csv('first_master-' + filename + '.csv', index=False)
 
-    match_df = pd.DataFrame(match_dict)
-    print(match_df.shape)
-    match_df.to_csv('match_df.csv')
 
 def new_sort_songs(dict):
     threshold = match_threshold
@@ -779,7 +781,7 @@ def make_selection_table(dicty):
                         lowest_time = float(song.split(';')[1])
                         lowest_cat = category
                         lowest_freq = int(song.split(';')[0])
-        sel_table.append({'time': lowest_time, 'freq': lowest_freq, 'type':lowest_cat})
+        sel_table.append({'time': lowest_time, 'freq': lowest_freq, 'ID':lowest_cat})
         dict[lowest_cat].remove(str(lowest_freq) + ';' + str(lowest_time))
         any_left = False
         for category in dict:
@@ -788,7 +790,7 @@ def make_selection_table(dicty):
     print(sel_table)
     df = pd.DataFrame(sel_table)
     print(df)
-    df.to_csv('new_selection_table.csv', index=False)
+    df.to_csv('new_selection_table-' + filename + '.csv', index=False)
 
 def create_song_album_from_df(dicty_list, filename: string):
     with h5py.File(filename + '.h5', 'r') as hf:
@@ -872,40 +874,40 @@ def load_match_df(file:string):
     return new_dict
 
 def create_master_df_and_album():
-    album = load_df('second_pass_df.csv')
+    album = load_df('second_pass_df-' + filename + '.csv')
     with h5py.File(filename + '.h5', 'r') as hf:
         data = hf[filename + '_dataset'][:]
-    sel_table = load_sel_table('new_selection_table.csv')
+    sel_table = load_sel_table('new_selection_table-' + filename + '.csv')
     ST_df = pd.DataFrame(sel_table)
     album_df = pd.DataFrame(album)
     album_df = album_df.rename(columns={'intro time': 'time', 'intro freq': 'freq'})
     combo_df = ST_df.merge(album_df)
-    combo_df = combo_df.sort_values(by=['type'])
-    combo_df.to_csv('first_master' + '.csv', index=False)
+    combo_df = combo_df.sort_values(by=['ID'])
+    combo_df.to_csv('first_master-' + filename + '.csv', index=False)
     ST_change_dict = {'current name': [], 'switch to': []}
     ST_change_df = pd.DataFrame(ST_change_dict)
-    ST_change_df.to_csv('ST_change_file.csv', index=False)
+    ST_change_df.to_csv('ST_change_file-' + filename + '.csv', index=False)
     make_ST_album(data, combo_df, 'STs', 70)
 
 def change_categories():
     letter_names = ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H','I', 'J','K','L','M','N','O','P','Q','R','S','T','U','V','W','X','Y','Z']
-    change_file = pd.read_csv('ST_change_file.csv')
-    master_df = pd.read_csv('first_master.csv')
+    change_file = pd.read_csv('ST_change_file-' + filename + '.csv')
+    master_df = pd.read_csv('first_master-' + filename + '.csv')
     change_file = change_file.sort_values(by=['current name'])
     print(change_file)
     for change_index, change_row in change_file.iterrows():
         for master_index, master_row in master_df.iterrows():
-            if master_row['type'] == change_row['current name']:
-                master_df.loc[master_index, 'type'] = change_row['switch to']
+            if master_row['ID'] == change_row['current name']:
+                master_df.loc[master_index, 'ID'] = change_row['switch to']
     for letter in letter_names:
         print(f'checking for: {letter}')
-        print(f'master_df.type: {master_df.type}')
-        if letter not in master_df.type.values:
+        if letter not in master_df['ID'].values:
             for master_index, master_row in master_df.iterrows():
-                if ord(master_row['type']) > ord(letter):
-                    master_df.loc[master_index, 'type'] = chr(ord(master_df.loc[master_index, 'type'])-1)  
+                if ord(master_row['ID']) > ord(letter):
+                    master_df.loc[master_index, 'ID'] = chr(ord(master_df.loc[master_index, 'ID'])-1)  
     master_df = master_df.sort_values(by=['time'])
-    master_df.to_csv('final_master.csv', index=False)
+    master_df.to_csv('master-' + filename +'.csv', index=False)
+    master_df.to_csv('template.csv', index=False)
     with h5py.File(filename + '.h5', 'r') as hf:
         data = hf[filename + '_dataset'][:]
     make_ST_album(data, master_df, 'STs', 70)
@@ -931,30 +933,28 @@ def first_pass():
     h5_to_album(filename)
 
 def second_pass():
-    # dicty_list = load_df('first_pass_df.csv')
-    # create_song_album_from_df(dicty_list, filename)
+    dicty_list = load_df('first_pass_df-' + filename + '.csv')
+    create_song_album_from_df(dicty_list, filename)
 
-    # dicty_list = load_df('second_pass_df.csv')
-    # count_both_matches(dicty_list)
+    dicty_list = load_df('second_pass_df-' + filename + '.csv')
+    count_both_matches(dicty_list)
 
-    match_dicty = load_match_df('match_df.csv')
+    match_dicty = load_match_df('match_df-' + filename + '.csv')
     song_types = new_sort_songs(match_dicty)
     song_types = relabel_song_types(song_types)
     make_selection_table(song_types)
     create_master_df_and_album()
 
 def second_pass_with_template():
-    # dicty_list = load_df('first_pass_df.csv')
-    # create_song_album_from_df(dicty_list, filename)
+    dicty_list = load_df('first_pass_df-' + filename + '.csv')
+    create_song_album_from_df(dicty_list, filename)
 
-    dicty_list = load_df('second_pass_df.csv')
+    dicty_list = load_df('second_pass_df-' + filename + '.csv')
     count_both_matches_from_template(dicty_list)
-
-    match_dicty = load_match_df('match_df.csv')
-    song_types = new_sort_songs(match_dicty)
-    song_types = relabel_song_types(song_types)
-    make_selection_table(song_types)
-    create_master_df_and_album()
+    combo_df = pd.read_csv('first_master-' + filename + '.csv')
+    with h5py.File(filename + '.h5', 'r') as hf:
+        data = hf[filename + '_dataset'][:]
+    make_ST_album(data, combo_df, 'STs', 70)
 
 def final_adjustments():
     change_categories()
@@ -1072,6 +1072,12 @@ match_threshold = 0.8 #this is the matchscore cutoff for deciding whether a ST g
 # final_adjustments() 
 
 
+
+
+
+
+
+
 # EXECUTE CODE BELOW HERE FOR LATER RECORDINGS OF A BIRD
 #fourier transform, stores h5 file, creates 20sec spectrograms. Have a look at thresholds.
 # set_up() 
@@ -1080,7 +1086,7 @@ match_threshold = 0.8 #this is the matchscore cutoff for deciding whether a ST g
 # first_pass()
 
 # #creates new folder of spectrograms and new_df.csv. Then it compares songs, assigns categories, creates images sorted by ST, and creates master sheet. Takes ~2.5min
-second_pass_with_template()
+# second_pass_with_template()
 
 # #input any final ST changes such as "all Cs should be Bs". Creates new folder and new master sheet. Takes ~50sec
 # final_adjustments() 
