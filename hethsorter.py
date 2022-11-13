@@ -37,17 +37,22 @@ def fourier(file):
     return S_db
 
 # LOAD ARRAY FROM H5 AND CREATE SONG ALBUM
-def h5_to_album(file):
+def h5_to_album(file, sample):
     with h5py.File(file + '.h5', 'r') as hf:
         data = hf[file + '_dataset'][:]
     print(np.shape(data))
 
+    if os.path.exists(file):
+        shutil.rmtree(file)
     os.mkdir(file)
     song_album = []
 
     i = 0
     rows = len(data)
-    columns = len(data[0])
+    if sample:
+        columns = 2000
+    else:
+        columns = len(data[0])
     print(rows)
     print(columns)
     while i < (columns):
@@ -62,10 +67,11 @@ def h5_to_album(file):
                 # print(line_dict)
                 if line_dict['length'] > intro_min_length:
                     post_notes = check_for_posts(data, post_threshold, post_onset, i, columns, rows, loud_post_threshold)
+                    if len(post_notes['soft notes']) + len(post_notes['loud notes']) > 2:
                     #cut the song out and add it to album
-                    song_album.append(add_song_to_album(data, i, columns, post_notes, line_dict))
+                        song_album.append(add_song_to_album(data, i, columns, post_notes, line_dict))
                     # if it has enough post_notes, skip the width of a song and continue on
-                    if song_album[-1]['label'] == 'Verified':
+                        print(f'found a song at second:{i * 0.023219814}')
                         i += 70
                         break
                     else:
@@ -78,7 +84,7 @@ def h5_to_album(file):
     save_images(song_album, file)
     #save the album as a dataframe and then csv
     print('saving csv...')
-    save_df(song_album, 'first_pass_df')
+    save_df(song_album, 'first_pass_df-' + filename)
 
 def save_images(song_album, file):
     for i in range(len(song_album)):
@@ -121,9 +127,9 @@ def make_ST_album(array, combo_df, folder: string, length: float):
     os.mkdir(folder)
     columns = len(array[0])
     for index, row in combo_df.iterrows():
-        song_title = row['ID'] + '-' + str(row['time']) + '-' + str(row['freq'])
+        song_title = row['ID'] + '-' + str(row['intro time']) + '-' + str(row['intro freq'])
         column = row['intro column']
-        song_name = row['ID'] + '-' + str(floor(row['time']))
+        song_name = row['ID'] + '-' + str(floor(row['intro time']))
         if ((column + length) < columns):
             chunk = array[:, column:column + length]
             save_spect_from_array(chunk, song_name, folder, length, song_title)
@@ -307,7 +313,7 @@ def check_for_posts(array, post_thresh:float, post_onset:float, column:int, colu
     return {'soft notes': soft_notes, 'loud notes': loud_notes}
 
 def add_song_to_album(array, column, columns, post_notes, line_dict):
-    if len(post_notes) > 1: 
+    if len(post_notes['loud notes']) + len(post_notes['soft notes']) > 2: 
         label = 'Verified'
         # a song has been identified and is now added to an array
     else:
@@ -422,6 +428,10 @@ def count_matches(album):
     print(match_dict)
 
     match_df = pd.DataFrame(match_dict)
+    # for index, row in match_df.iterrows():
+    #     match_list = match_df.loc[index].values.flatten().tolist()
+    #     print(match_list)
+    #     match_df.loc[index, 'MAX'] = max(match_list)
     print(match_df.shape)
     match_df.to_csv('match_df-' + filename + '.csv')
 
@@ -555,11 +565,11 @@ def count_both_matches(album):
 
     match_df = pd.DataFrame(match_dict)
     print(match_df.shape)
-    match_df.to_csv('match_df' + filename + '.csv')
+    match_df.to_csv('match_df-' + filename + '.csv')
 
 def count_both_matches_from_template(album):
-    final_df = pd.read_csv('second_pass_df' + filename + '.csv', index_col=False)
-    master_dict = load_df('final_master-' + filename + '.csv')
+    final_df = pd.read_csv('second_pass_df-' + filename + '.csv', index_col=False)
+    master_dict = load_df('template.csv')
     for dict in master_dict:
         dict['soft locs'] = dict['soft locs'][0]
         dict['loud locs'] = dict['loud locs'][0]
@@ -639,14 +649,14 @@ def count_both_matches_from_template(album):
                                 break
                 score = score/best_possible_score
                 if score > best_score:
-                    print(f'best score is: {best_score}')
-                    print(f'score: {score} for {compare_song}, best score: {best_score}')
+                    # print(f'best score is: {best_score}')
+                    # print(f'score: {score} for {compare_song}, best score: {best_score}')
                     best_score = score
                     best_cat = compare_song['ID']
-                    print(f'changing to {best_cat}')              
+                    # print(f'changing to {best_cat}')              
         cat_list.append(best_cat)
-    final_df['ST'] = cat_list
-    final_df.to_csv('first_master-' + filename + '.csv', index=False)
+    final_df['ID'] = cat_list
+    final_df.to_csv('master-' + filename + '.csv', index=False)
 
 
 def new_sort_songs(dict):
@@ -746,7 +756,7 @@ def new_sort_songs(dict):
 
 def relabel_song_types(dict):
     new_dict = {}
-    letter_names = ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H','I', 'J','K','L','M','N','O','P','Q','R','S','T','U','V','W','X','Y','Z']
+    letter_names = ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H','I','J','K','L','M','N','O','P','Q','R','S','T','U','V','W','X','Y','Z']
     while (len(new_dict) < len(dict)):
         lowest_cat = 0
         lowest_freq = 15000
@@ -781,7 +791,7 @@ def make_selection_table(dicty):
                         lowest_time = float(song.split(';')[1])
                         lowest_cat = category
                         lowest_freq = int(song.split(';')[0])
-        sel_table.append({'time': lowest_time, 'freq': lowest_freq, 'ID':lowest_cat})
+        sel_table.append({'intro time': lowest_time, 'intro freq': lowest_freq, 'ID':lowest_cat})
         dict[lowest_cat].remove(str(lowest_freq) + ';' + str(lowest_time))
         any_left = False
         for category in dict:
@@ -796,15 +806,14 @@ def create_song_album_from_df(dicty_list, filename: string):
     with h5py.File(filename + '.h5', 'r') as hf:
         data = hf[filename + '_dataset'][:]
     song_album = []
-    if os.path.exists('new_' + filename):
-        shutil.rmtree('new_' + filename)
-    os.mkdir('new_' + filename)
-    i = dicty_list[0]['intro column']
+    if os.path.exists(filename):
+        shutil.rmtree(filename)
+    os.mkdir(filename)
     rows = len(data)
     for dicty in dicty_list:
-        columns = dicty['intro column'] + 80
+        columns = len(data[0])
         i = dicty['intro column']
-        while i < (dicty['intro column'] + 10):
+        while i < (dicty['intro column'] + 10) and (i < columns -1):
             j = 0
             while j < rows:
                 if i >= dicty['intro column'] + 10:
@@ -826,9 +835,9 @@ def create_song_album_from_df(dicty_list, filename: string):
                 j += 1            
             i += 1   
         #save a bunch of spectrograms
-    save_images(song_album, 'new_' + filename)
+    save_images(song_album, filename)
     #save the album as a dataframe and then csv
-    save_df(song_album, 'second_pass_df')
+    save_df(song_album, 'second_pass_df-' + filename)
     #compare all songs to each other and save csv
 
 def load_df(file:string):
@@ -880,19 +889,23 @@ def create_master_df_and_album():
     sel_table = load_sel_table('new_selection_table-' + filename + '.csv')
     ST_df = pd.DataFrame(sel_table)
     album_df = pd.DataFrame(album)
-    album_df = album_df.rename(columns={'intro time': 'time', 'intro freq': 'freq'})
+    album_df = album_df.rename(columns={'intro time': 'intro time', 'intro freq': 'intro freq'})
     combo_df = ST_df.merge(album_df)
     combo_df = combo_df.sort_values(by=['ID'])
-    combo_df.to_csv('first_master-' + filename + '.csv', index=False)
-    ST_change_dict = {'current name': [], 'switch to': []}
+    combo_df.to_csv('master-' + filename + '.csv', index=False)
+    ST_change_dict = {'current name': [], 'switch to': [], 'single time': [], 'switch single to': []}
     ST_change_df = pd.DataFrame(ST_change_dict)
     ST_change_df.to_csv('ST_change_file-' + filename + '.csv', index=False)
-    make_ST_album(data, combo_df, 'STs', 70)
+    make_ST_album(data, combo_df, 'STs-' + filename, 70)
 
 def change_categories():
     letter_names = ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H','I', 'J','K','L','M','N','O','P','Q','R','S','T','U','V','W','X','Y','Z']
     change_file = pd.read_csv('ST_change_file-' + filename + '.csv')
-    master_df = pd.read_csv('first_master-' + filename + '.csv')
+    master_df = pd.read_csv('master-' + filename + '.csv')
+    for change_index, change_row in change_file.iterrows():
+        print(change_row['single time'])
+        if change_row['single time']:
+            master_df.loc[master_df['intro time'] == change_row['single time'], 'ID'] = change_row['switch single to']
     change_file = change_file.sort_values(by=['current name'])
     print(change_file)
     for change_index, change_row in change_file.iterrows():
@@ -900,17 +913,29 @@ def change_categories():
             if master_row['ID'] == change_row['current name']:
                 master_df.loc[master_index, 'ID'] = change_row['switch to']
     for letter in letter_names:
-        print(f'checking for: {letter}')
-        if letter not in master_df['ID'].values:
+        current_categories = master_df['ID'].values.tolist()
+        current_numbers = [ord(x) for x in current_categories]
+        if ord(letter) > max(current_numbers):
+            break
+        while letter not in master_df['ID'].values:
+            current_categories = master_df['ID'].values.tolist()
+            current_numbers = [ord(x) for x in current_categories]
+            if ord(letter) > max(current_numbers):
+                break
             for master_index, master_row in master_df.iterrows():
                 if ord(master_row['ID']) > ord(letter):
-                    master_df.loc[master_index, 'ID'] = chr(ord(master_df.loc[master_index, 'ID'])-1)  
-    master_df = master_df.sort_values(by=['time'])
+                    master_df.loc[master_index, 'ID'] = chr(ord(master_df.loc[master_index, 'ID'])-1)
+    
+    if not os.path.exists('template.csv'):
+        print('TEMPLATE CREATED')
+        master_df = master_df.sort_values(by=['ID'])
+        master_df.to_csv('template.csv', index=False)
+    master_df = master_df.sort_values(by=['intro time'])
     master_df.to_csv('master-' + filename +'.csv', index=False)
-    master_df.to_csv('template.csv', index=False)
+
     with h5py.File(filename + '.h5', 'r') as hf:
         data = hf[filename + '_dataset'][:]
-    make_ST_album(data, master_df, 'STs', 70)
+    make_ST_album(data, master_df, 'STs-' + filename, 70)
 
 
                     # WORKFLOW FUNCTIONS
@@ -930,7 +955,10 @@ def set_up():
 #STORE THE WAV AS AN H5 FILE. BE AWARE, FOURIER SLICES OFF THE BOTTOM AND TOP
 
 def first_pass():
-    h5_to_album(filename)
+    h5_to_album(filename, False)
+
+def first_pass_sample():
+    h5_to_album(filename, True)
 
 def second_pass():
     dicty_list = load_df('first_pass_df-' + filename + '.csv')
@@ -951,10 +979,13 @@ def second_pass_with_template():
 
     dicty_list = load_df('second_pass_df-' + filename + '.csv')
     count_both_matches_from_template(dicty_list)
-    combo_df = pd.read_csv('first_master-' + filename + '.csv')
+    combo_df = pd.read_csv('master-' + filename + '.csv')
     with h5py.File(filename + '.h5', 'r') as hf:
         data = hf[filename + '_dataset'][:]
-    make_ST_album(data, combo_df, 'STs', 70)
+    make_ST_album(data, combo_df, 'STs-' + filename, 70)
+    ST_change_dict = {'current name': [], 'switch to': [], 'single time': [], 'switch single to': []}
+    ST_change_df = pd.DataFrame(ST_change_dict)
+    ST_change_df.to_csv('ST_change_file-' + filename + '.csv', index=False)
 
 def final_adjustments():
     change_categories()
@@ -972,25 +1003,25 @@ def final_adjustments():
 # CODE TO RUN
 
     # VARIABLES
-filename = 'July 9 Chickahominy 2 80-90'
+filename = 'July 9 Chickahominy 2 60-70'
 
-intro_onset = -45
-intro_threshold = -40
 intro_max = -30
-intro_min_length = 11
+intro_onset = intro_max - 10
+intro_threshold = intro_max - 5
+intro_min_length = 9
 intro_max_length = 17
 intro_jumps = 1
-diff_threshold = 15
+diff_threshold = 15 #this is how far one value on a thread can jump up or down to the next value
 
-post_onset = -50
-post_threshold = -45
-post_max = -40
+post_max = -35
+post_onset = post_max - 10
+post_threshold = post_max - 5
 post_min_length = 5
 post_max_length = 15
 post_jumps = 1
-loud_post_threshold = -25
+loud_post_threshold = post_max + 15
 
-clumping_threshold = 0.1 #this is the threshold for combining ST categories based on a ratio of average match scores
+clumping_threshold = 0.05 #this is the threshold for combining ST categories based on a ratio of average match scores
 match_threshold = 0.8 #this is the matchscore cutoff for deciding whether a ST gets its own category
 
 
@@ -1000,8 +1031,12 @@ match_threshold = 0.8 #this is the matchscore cutoff for deciding whether a ST g
 
 
     # SAVE DF TO CSV
-# df = pd.DataFrame(new_seg)
-# df.to_csv('tensec.csv')
+def check_the_numbers():
+    with h5py.File(filename + '.h5', 'r') as hf:
+        data = hf[filename + '_dataset'][:]
+    new_seg = make_segment(data, 129, 3)
+    df = pd.DataFrame(new_seg)
+    df.to_csv('sample.csv')
 
 
     # SAVE ARRAY TO H5 FILE
@@ -1053,7 +1088,9 @@ match_threshold = 0.8 #this is the matchscore cutoff for deciding whether a ST g
 # new_seg = make_segment(data, 170, 140)
 
 
-
+def load_variables():
+    variables = pd.read_csv(variables)
+    print(variables)
 
 
 
@@ -1062,6 +1099,7 @@ match_threshold = 0.8 #this is the matchscore cutoff for deciding whether a ST g
 #fourier transform, stores h5 file, creates 20sec spectrograms. Have a look at thresholds. Takes ~40sec
 # set_up() 
 
+# first_pass_sample() # this grabs a little sample of the data to inspect
 # #creates df.csv and folder of prospective spectrograms. delete rows and make changes to intro column in df.csv before second pass. Takes ~2min
 # first_pass()
 
@@ -1079,14 +1117,16 @@ match_threshold = 0.8 #this is the matchscore cutoff for deciding whether a ST g
 
 
 # EXECUTE CODE BELOW HERE FOR LATER RECORDINGS OF A BIRD
-#fourier transform, stores h5 file, creates 20sec spectrograms. Have a look at thresholds.
+#fourier transform, stores h5 file, creates 20sec spectrograms. Have a look at thresholds. takes ~51sec
 # set_up() 
 
-# #creates df.csv and folder of prospective spectrograms. delete rows and make changes to intro column in df.csv before second pass. Takes ~2min
+# #creates df.csv and folder of prospective spectrograms. delete rows and make changes to intro column in df.csv before second pass. Takes ~1:51
+# first_pass_sample()
+# check_the_numbers()
 # first_pass()
 
 # #creates new folder of spectrograms and new_df.csv. Then it compares songs, assigns categories, creates images sorted by ST, and creates master sheet. Takes ~2.5min
-# second_pass_with_template()
+second_pass_with_template()
 
 # #input any final ST changes such as "all Cs should be Bs". Creates new folder and new master sheet. Takes ~50sec
-# final_adjustments() 
+# final_adjustments()
