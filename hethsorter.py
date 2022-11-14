@@ -16,6 +16,9 @@ import librosa
 import librosa.display
 import IPython.display as ipd
 import shutil
+from pydub import AudioSegment
+import statistics
+
 
 from itertools import cycle
 
@@ -57,7 +60,7 @@ def h5_to_album(file, sample):
     print(columns)
     while i < (columns):
         j = 0
-        while j < rows:
+        while j < 400:
             # print(array[j][i])
             if i >= columns:
                 break
@@ -322,7 +325,7 @@ def add_song_to_album(array, column, columns, post_notes, line_dict):
         new_array = array[:,column:column+70]
     else:
         # add columns to a clipped song so that it fits with the others
-        new_array = array[:, column:]
+        new_array = array[:, column:columns]
         shorter_cols = np.shape(new_array)[1]
         zero_array = np.zeros((623, 70))
         zero_array.fill(-80)
@@ -647,7 +650,7 @@ def count_both_matches_from_template(album):
                             elif (abs(target_note[3] - compare_note[3]) < 30) and (abs((target_note[1]+i) - compare_note[1]) < 10):
                                 score += .5
                                 break
-                score = score/best_possible_score
+                score = round(score/best_possible_score - 0.01 * abs(target_song['post size'] - compare_song['post size']), 5)
                 if score > best_score:
                     # print(f'best score is: {best_score}')
                     # print(f'score: {score} for {compare_song}, best score: {best_score}')
@@ -761,11 +764,14 @@ def relabel_song_types(dict):
         lowest_cat = 0
         lowest_freq = 15000
         for category in dict:
-            for song in dict[category]:
-                if dict[category] != 'delete':
-                    if int(song.split(';')[0]) < lowest_freq:
-                        lowest_freq = int(song.split(';')[0])
-                        lowest_cat = category
+            song_list = []
+            if dict[category] != 'delete':
+                for song in dict[category]:
+                    song_list.append(int(song.split(';')[0]))
+                median_freq = statistics.median(song_list)
+                if median_freq < lowest_freq: #NEED TO USE MEDIAN HERE
+                    lowest_freq = median_freq
+                    lowest_cat = category
         index = len(new_dict)
         new_dict[letter_names[index]] = dict[lowest_cat]
         dict[lowest_cat] = 'delete'
@@ -940,6 +946,42 @@ def change_categories():
 
                     # WORKFLOW FUNCTIONS
 
+def cut_wav_into_ten_minute_wavs():
+    t1 = 0 #Works in milliseconds
+    t2 = 600000    
+    newAudio = AudioSegment.from_wav(filename + '.wav')
+    length = newAudio.duration_seconds * 1000
+    print(f'total length of wav: {length}')
+    while t2 < length:
+        newSlice = newAudio[t1:t2]
+        name_t1 = str(int(t1 / 60000))
+        name_t2 = str(int(t2 / 60000))
+        name = filename + '-' + name_t1 + 'm-' + name_t2 + 'm.wav'
+        newSlice.export(name, format="wav") #Exports to a wav file in the current path.
+        t1 = t1 + 600000
+        t2 = t2 + 600000
+    if t2 < length + 60000:
+        newSlice = newAudio[t1:]
+        name_t1 = str(int(t1 / 60000))
+        name = filename + '-' + name_t1 + 'm-end.wav'
+        newSlice.export(name, format="wav") #Exports to a wav file in the current path.
+
+def slice_a_wav(start, end = 10000):
+    t1 = start * 1000 #Works in milliseconds
+    t2 = end * 1000
+    newAudio = AudioSegment.from_wav(filename + '.wav')
+    length = newAudio.duration_seconds * 1000
+
+    if end > length / 1000:
+        newSlice = newAudio[t1:]
+        name = filename + '-' + str(start) + 's-' + 'end-' + 'slice' + '.wav'
+        newSlice.export(name, format="wav") #Exports to a wav file in the current path.
+    else:
+        newSlice = newAudio[t1:t2]
+        name = filename + '-' + str(start) + 's-' + str(end) + 's-slice' + '.wav'
+        newSlice.export(name, format="wav") #Exports to a wav file in the current path.
+
+
 def set_up():
     data = fourier(filename + '.wav')
     print(np.shape(data))
@@ -1003,9 +1045,9 @@ def final_adjustments():
 # CODE TO RUN
 
     # VARIABLES
-filename = 'July 9 Chickahominy 2 50-60'
+filename = 'HERMIT4_20220504_065328-s-10m-20m'
 
-intro_max = -30
+intro_max = -40
 intro_onset = intro_max - 10
 intro_threshold = intro_max - 5
 intro_min_length = 9
@@ -1013,7 +1055,7 @@ intro_max_length = 17
 intro_jumps = 1
 diff_threshold = 25 #this is how far one value on a thread can jump up or down to the next value
 
-post_max = -35
+post_max = -45
 post_onset = post_max - 10
 post_threshold = post_max - 5
 post_min_length = 5
@@ -1021,8 +1063,8 @@ post_max_length = 15
 post_jumps = 1
 loud_post_threshold = post_max + 15
 
-clumping_threshold = 0.05 #this is the threshold for combining ST categories based on a ratio of average match scores
-match_threshold = 0.8 #this is the matchscore cutoff for deciding whether a ST gets its own category
+clumping_threshold = 0.1 #this is the threshold for combining ST categories based on a ratio of average match scores
+match_threshold = 0.6 #this is the matchscore cutoff for deciding whether a ST gets its own category
 
 
 
@@ -1097,14 +1139,16 @@ def load_variables():
 # EXECUTE CODE BELOW HERE FOR INITIAL 10MIN OF A BIRD
 
 #fourier transform, stores h5 file, creates 20sec spectrograms. Have a look at thresholds. Takes ~40sec
+# cut_wav_into_ten_minute_wavs()
 # set_up() 
 
 # first_pass_sample() # this grabs a little sample of the data to inspect
 # #creates df.csv and folder of prospective spectrograms. delete rows and make changes to intro column in df.csv before second pass. Takes ~2min
+# slice_a_wav(120)
 # first_pass()
 
 # #creates new folder of spectrograms and new_df.csv. Then it compares songs, assigns categories, creates images sorted by ST, and creates master sheet. Takes ~2.5min
-# second_pass() 
+second_pass() 
 
 # #input any final ST changes such as "all Cs should be Bs". Creates new folder and new master sheet. Takes ~50sec
 # final_adjustments() 
@@ -1120,13 +1164,15 @@ def load_variables():
 #fourier transform, stores h5 file, creates 20sec spectrograms. Have a look at thresholds. takes ~51sec
 # set_up() 
 
+
 # #creates df.csv and folder of prospective spectrograms. delete rows and make changes to intro column in df.csv before second pass. Takes ~1:51
+
 # first_pass_sample()
 # check_the_numbers(260.5, 1)
 # first_pass()
 
 # #creates new folder of spectrograms and updates first_pass-.csv. Then it compares songs, assigns categories, creates images sorted by ST, and creates master sheet. Takes ~2min
-second_pass_with_template()
+# second_pass_with_template()
 
 # #input any final ST changes such as "all Cs should be Bs". Creates new folder and new master sheet. Takes ~50sec
 # final_adjustments()
