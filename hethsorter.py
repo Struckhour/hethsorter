@@ -1003,7 +1003,7 @@ def final_adjustments():
 # CODE TO RUN
 
     # VARIABLES
-filename = 'July 9 Chickahominy 2 60-70'
+filename = 'July 9 Chickahominy 2 50-60'
 
 intro_max = -30
 intro_onset = intro_max - 10
@@ -1011,7 +1011,7 @@ intro_threshold = intro_max - 5
 intro_min_length = 9
 intro_max_length = 17
 intro_jumps = 1
-diff_threshold = 15 #this is how far one value on a thread can jump up or down to the next value
+diff_threshold = 25 #this is how far one value on a thread can jump up or down to the next value
 
 post_max = -35
 post_onset = post_max - 10
@@ -1031,10 +1031,10 @@ match_threshold = 0.8 #this is the matchscore cutoff for deciding whether a ST g
 
 
     # SAVE DF TO CSV
-def check_the_numbers():
+def check_the_numbers(start, duration):
     with h5py.File(filename + '.h5', 'r') as hf:
         data = hf[filename + '_dataset'][:]
-    new_seg = make_segment(data, 129, 3)
+    new_seg = make_segment(data, start, duration)
     df = pd.DataFrame(new_seg)
     df.to_csv('sample.csv')
 
@@ -1122,10 +1122,10 @@ def load_variables():
 
 # #creates df.csv and folder of prospective spectrograms. delete rows and make changes to intro column in df.csv before second pass. Takes ~1:51
 # first_pass_sample()
-# check_the_numbers()
+# check_the_numbers(260.5, 1)
 # first_pass()
 
-# #creates new folder of spectrograms and new_df.csv. Then it compares songs, assigns categories, creates images sorted by ST, and creates master sheet. Takes ~2.5min
+# #creates new folder of spectrograms and updates first_pass-.csv. Then it compares songs, assigns categories, creates images sorted by ST, and creates master sheet. Takes ~2min
 second_pass_with_template()
 
 # #input any final ST changes such as "all Cs should be Bs". Creates new folder and new master sheet. Takes ~50sec
