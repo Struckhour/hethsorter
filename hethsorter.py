@@ -1047,9 +1047,9 @@ def final_adjustments():
     # VARIABLES
 filename = 'HERMIT4_20220504_065328-s-10m-20m'
 
-intro_max = -40
-intro_onset = intro_max - 10
-intro_threshold = intro_max - 5
+intro_max = -35
+intro_onset = intro_max - 15
+intro_threshold = intro_max - 10
 intro_min_length = 9
 intro_max_length = 17
 intro_jumps = 1
@@ -1145,10 +1145,10 @@ def load_variables():
 # first_pass_sample() # this grabs a little sample of the data to inspect
 # #creates df.csv and folder of prospective spectrograms. delete rows and make changes to intro column in df.csv before second pass. Takes ~2min
 # slice_a_wav(120)
-# first_pass()
+first_pass()
 
 # #creates new folder of spectrograms and new_df.csv. Then it compares songs, assigns categories, creates images sorted by ST, and creates master sheet. Takes ~2.5min
-second_pass() 
+# second_pass() 
 
 # #input any final ST changes such as "all Cs should be Bs". Creates new folder and new master sheet. Takes ~50sec
 # final_adjustments() 
