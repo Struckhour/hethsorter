@@ -30,8 +30,8 @@ color_cycle = cycle(plt.rcParams["axes.prop_cycle"].by_key()["color"])
     # FUNCTIONS
 
 # LOAD A RECORDING AND FOURIER TRANSFORM IT
-def fourier(file):
-    y, sr = librosa.load(file)
+def fourier(filename):
+    y, sr = librosa.load(filename)
     print(f'sr = {sr}Hz')
     D = librosa.stft(y)
     S_db = librosa.amplitude_to_db(np.abs(D), ref=np.max)
@@ -40,14 +40,17 @@ def fourier(file):
     return S_db
 
 # LOAD ARRAY FROM H5 AND CREATE SONG ALBUM
-def h5_to_album(file, sample):
-    with h5py.File(file + '.h5', 'r') as hf:
-        data = hf[file + '_dataset'][:]
+def h5_to_album(filename, sample):
+    with h5py.File(filename + '.h5', 'r') as hf:
+        data = hf[filename + '_dataset'][:]
     print(np.shape(data))
 
-    if os.path.exists(file):
-        shutil.rmtree(file)
-    os.mkdir(file)
+    if os.path.exists(filename):
+        shutil.rmtree(filename)
+    os.mkdir(filename)
+    if os.path.exists(filename + '/unverified'):
+        shutil.rmtree(filename + '/unverified')
+    os.mkdir(filename + '/unverified')
     song_album = []
 
     i = 0
@@ -72,27 +75,31 @@ def h5_to_album(file, sample):
                     post_notes = check_for_posts(data, post_threshold, post_onset, i, columns, rows, loud_post_threshold)
                     if len(post_notes['soft notes']) + len(post_notes['loud notes']) > 2:
                     #cut the song out and add it to album
-                        song_album.append(add_song_to_album(data, i, columns, post_notes, line_dict))
+                        song_album.append(add_song_to_album(data, j, rows, i, columns, post_notes, line_dict))
                     # if it has enough post_notes, skip the width of a song and continue on
                         print(f'found a song at second:{i * 0.023219814}')
-                        i += 70
-                        break
-                    else:
-                        i += 5
-                        break
+                        if song_album[-1]['status'] == 'verified':
+                            i += 70
+                            break
+                        else:
+                            i += 5
+                            break
             j += 1            
         i += 1
     #save a bunch of spectrograms
     print('saving spectrograms...')
-    save_images(song_album, file)
+    save_images(song_album, filename)
     #save the album as a dataframe and then csv
     print('saving csv...')
-    save_df(song_album, 'first_pass_df-' + filename)
+    save_df_verified(song_album, 'first_pass_df-' + filename)
 
-def save_images(song_album, file):
+def save_images(song_album, filename):
     for i in range(len(song_album)):
         song_name = 'song' + str(i+1)
-        save_spect(song_album[i], song_name, file)
+        if song_album[i]['status'] == 'verified':
+            save_spect(song_album[i], song_name, filename)
+        else:
+            save_spect(song_album[i], song_name, filename + '/unverified')
 
 def cut_array_into_specs(array, folder: string, length: float):
     if os.path.exists(folder):
@@ -149,12 +156,30 @@ def make_ST_album(array, combo_df, folder: string, length: float):
 
 
 def save_df(song_album, dfname):
-    datadict = {'intro column': [], 'intro time': [], 'intro freq': [], 'intro length': [],'post size': [], 'soft locs': [], 'loud locs':[]}
+    datadict = {'intro column': [], 'intro time': [], 'intro freq': [], 'status': [], 'intro length': [],'post size': [], 'soft locs': [], 'loud locs':[]}
 
     for entry in song_album:
         datadict['intro column'].append(entry['intro column'])
         datadict['intro time'].append(entry['intro time'])
         datadict['intro freq'].append(entry['intro freq'])
+        datadict['status'].append(entry['status'])
+        datadict['intro length'].append(entry['intro length'])       
+        datadict['soft locs'].append(''.join(','.join(map(str, entry['soft notes']))))
+        datadict['loud locs'].append(''.join(','.join(map(str, entry['loud notes']))))
+        datadict['post size'].append(len(entry['soft notes']) + len(entry['loud notes']))
+
+    df = pd.DataFrame(datadict)
+    df.to_csv(dfname + '.csv', index=False)
+
+def save_df_verified(song_album, dfname):
+    datadict = {'intro column': [], 'intro time': [], 'action': [], 'intro freq': [], 'status': [], 'intro length': [],'post size': [], 'soft locs': [], 'loud locs':[]}
+
+    for entry in song_album:
+        datadict['intro column'].append(entry['intro column'])
+        datadict['intro time'].append(entry['intro time'])
+        datadict['intro freq'].append(entry['intro freq'])
+        datadict['status'].append(entry['status'])
+        datadict['action'].append('')
         datadict['intro length'].append(entry['intro length'])       
         datadict['soft locs'].append(''.join(','.join(map(str, entry['soft notes']))))
         datadict['loud locs'].append(''.join(','.join(map(str, entry['loud notes']))))
@@ -250,14 +275,18 @@ def check_for_thread_strict(array, row, column, rows, columns, threshold, max_th
                 if (length >= min_length) and (max(line_values) > max_threshold):
                     # print('medium thread')
                     # print(line_values)
-                    return {'length': length, 'onset time': column, 'onset freq': start_row, 'max db': max(line_values), 'mean freq': round(np.mean(line_freqs), 2)}
+                    return {'length': length, 'onset time': column, 'onset freq': start_row, 'max db': max(line_values), 'mean freq': round(np.mean(line_freqs), 2), 'status': 'verified', 'max index': line_values.index(max(line_values))}
+                elif (length >= min_length) and (max(line_values) > max_threshold - verification_buffer):
+                    return {'length': length, 'onset time': column, 'onset freq': start_row, 'max db': max(line_values), 'mean freq': round(np.mean(line_freqs), 2), 'status': 'unverified', 'max index': line_values.index(max(line_values))}
                 else:
                     # print(f'did not qualify. length: {length}, max value: {max(line_values)}, line values: {line_values}')
                     return {'length': 0}
         if max(line_values) > max_threshold:
             # print('max line!')
             # print(line_values)
-            return {'length': length, 'onset time': column, 'onset freq': start_row, 'max db': max(line_values), 'mean freq': round(np.mean(line_freqs), 2)}
+            return {'length': length, 'onset time': column, 'onset freq': start_row, 'max db': max(line_values), 'mean freq': round(np.mean(line_freqs), 2), 'status': 'verified', 'max index': line_values.index(max(line_values))}
+        elif max(line_values) > max_threshold - verification_buffer:
+            return {'length': length, 'onset time': column, 'onset freq': start_row, 'max db': max(line_values), 'mean freq': round(np.mean(line_freqs), 2), 'status': 'unverified', 'max index': line_values.index(max(line_values))}
         else:
             # print('max value was not above threshold')
             return {'length': 0}
@@ -313,14 +342,42 @@ def check_for_posts(array, post_thresh:float, post_onset:float, column:int, colu
         soft_notes.append([0,0,0,0])
     if len(loud_notes) < 1:
         loud_notes.append([0,0,0,0])
-    return {'soft notes': soft_notes, 'loud notes': loud_notes}
+    #check if there are any post notes in the first half
+    loud_note_times = [x[1] for x in loud_notes]
+    soft_note_times = [x[1] for x in soft_notes]
+    if min(loud_note_times) > 35 and min(soft_note_times) > 35:
+        label = 'unverified'
+    else:
+        label = 'verified'
+    return {'soft notes': soft_notes, 'loud notes': loud_notes, 'status': label}
 
-def add_song_to_album(array, column, columns, post_notes, line_dict):
-    if len(post_notes['loud notes']) + len(post_notes['soft notes']) > 2: 
-        label = 'Verified'
+def check_for_vertical_splash(array, row, column, rows, splash_range):
+    value_list = []
+    splash_range_internal = splash_range
+    if row + splash_range + 3 > rows:
+        splash_range_internal = rows - row
+    for i in range(splash_range_internal):
+        value_list.append(array[row + 3 + i][column])
+    if np.mean(value_list) > splash_threshold:
+        print(f'splash over threshold at {np.mean(value_list)}')
+        return True
+    value_list = []
+    if row - 3 - splash_range < 0:
+        splash_range_internal = row
+    for i in range(splash_range_internal):
+        value_list.append(array[row - 3 - i][column])
+    if np.mean(value_list) > splash_threshold:
+        print(f'splash over threshold at {np.mean(value_list)}')
+        return True
+    return False
+
+def add_song_to_album(array, row, rows, column, columns, post_notes, line_dict):
+    vertical_splash = check_for_vertical_splash(array, row, column, rows, 50)
+    if (len(post_notes['loud notes']) + len(post_notes['soft notes']) > 2) and (line_dict['status'] == 'verified') and (post_notes['status'] == 'verified') and (not vertical_splash): 
+        label = 'verified'
         # a song has been identified and is now added to an array
     else:
-        label = 'Not Enough Post Notes'
+        label = 'unverified'
     if column+70 < columns:
         new_array = array[:,column:column+70]
     else:
@@ -333,7 +390,7 @@ def add_song_to_album(array, column, columns, post_notes, line_dict):
         zero_array[:,:-col_diff] = new_array
         new_array = zero_array
     # store the song
-    return {"intro column": line_dict['onset time'], "intro time": round((line_dict['onset time']) * 0.023219814, 1), "intro freq": line_dict['onset freq'], "intro length":line_dict['length'], "array": new_array, "label": label, "soft notes": post_notes['soft notes'], "loud notes": post_notes['loud notes']}
+    return {"intro column": line_dict['onset time'], "intro time": round((line_dict['onset time']) * 0.023219814, 1), "intro freq": line_dict['onset freq'], "intro length":line_dict['length'], "array": new_array, "status": label, "soft notes": post_notes['soft notes'], "loud notes": post_notes['loud notes']}
 
                                 # FUNCTIONS FOR SAVING OR DISPLAYING SPECTROGRAMS
 
@@ -350,7 +407,7 @@ def display_spect(array):
 def save_spect(dict, name, folder):
     fig, ax = plt.subplots(figsize=(15, 7))
     img = librosa.display.specshow(dict["array"], x_axis=None, y_axis=None, sr=22050, ax=ax)
-    ax.set_title(str(dict["intro time"]) + ' seconds' + ' ' + dict["label"] + ':' + str(dict['intro column']), fontsize=20)
+    ax.set_title(str(dict["intro time"]) + ' seconds' + ' ' + dict["status"] + ':' + str(dict['intro column']), fontsize=20)
     ax.tick_params(direction='out', labelsize='medium', width=3, grid_alpha=0.9)
     ax.grid(True, linestyle='-.')
     fig.colorbar(img, ax=ax, format=f'%0.2f')
@@ -393,8 +450,8 @@ def make_segment(array, start, duration):
     return new_array
 
 # CUT A SEGMENT, STORE IT AS AN H5 FILE
-def store_an_array(file, start, duration):
-    data = fourier(file + '.wav')
+def store_an_array(filename, start, duration):
+    data = fourier(filename + '.wav')
     new_seg = make_segment(data, start, duration)
     print(np.shape(new_seg))
     with h5py.File(str(duration) + 'seconds' + '.h5', 'w') as hf:
@@ -830,14 +887,9 @@ def create_song_album_from_df(dicty_list, filename: string):
                     if line_dict['length'] > intro_min_length:
                         post_notes = check_for_posts(data, post_threshold, post_onset, i, columns, rows, loud_post_threshold)
                         #cut the song out and add it to album
-                        song_album.append(add_song_to_album(data, i, columns, post_notes, line_dict))
-                        # if it has enough post_notes, skip the width of a song and continue on
-                        if song_album[-1]['label'] == 'Verified':
-                            i += 70
-                            break
-                        else:
-                            i += 5
-                            break
+                        song_album.append(add_song_to_album(data, j, rows, i, columns, post_notes, line_dict))
+                        i += 70
+                        break
                 j += 1            
             i += 1   
         #save a bunch of spectrograms
@@ -846,8 +898,8 @@ def create_song_album_from_df(dicty_list, filename: string):
     save_df(song_album, 'second_pass_df-' + filename)
     #compare all songs to each other and save csv
 
-def load_df(file:string):
-    df = pd.read_csv(file)
+def load_df(filename:string):
+    df = pd.read_csv(filename)
     dicty_list = df.to_dict('records')
     for dictionary in dicty_list:
 
@@ -868,15 +920,15 @@ def load_df(file:string):
     return dicty_list
 
 
-def load_sel_table(file:string):
-    df = pd.read_csv(file)
+def load_sel_table(filename:string):
+    df = pd.read_csv(filename)
     dicty_list = df.to_dict('records')
 
     print(dicty_list)
     return dicty_list
 
-def load_match_df(file:string):
-    df = pd.read_csv(file)
+def load_match_df(filename:string):
+    df = pd.read_csv(filename)
     print(f'df: {df}')
     dicty = df.to_dict('records')
     print(f'dicty: {dicty}')
@@ -1047,21 +1099,24 @@ def final_adjustments():
     # VARIABLES
 filename = 'HERMIT4_20220504_065328-s-10m-20m'
 
-intro_max = -40
-intro_onset = intro_max - 10
-intro_threshold = intro_max - 5
+intro_max = -30
+verification_buffer = 15 #lines with an intro max that is this many dbs below intro_max will be in unverified
+intro_onset = intro_max - 15
+intro_threshold = intro_max - 15
 intro_min_length = 9
 intro_max_length = 17
 intro_jumps = 1
 diff_threshold = 25 #this is how far one value on a thread can jump up or down to the next value
 
-post_max = -45
-post_onset = post_max - 10
+post_max = intro_max - 15
+post_onset = post_max - 15
 post_threshold = post_max - 5
 post_min_length = 5
 post_max_length = 15
 post_jumps = 1
 loud_post_threshold = post_max + 15
+splash_threshold = intro_max - 25
+
 
 clumping_threshold = 0.1 #this is the threshold for combining ST categories based on a ratio of average match scores
 match_threshold = 0.6 #this is the matchscore cutoff for deciding whether a ST gets its own category
@@ -1145,10 +1200,10 @@ def load_variables():
 # first_pass_sample() # this grabs a little sample of the data to inspect
 # #creates df.csv and folder of prospective spectrograms. delete rows and make changes to intro column in df.csv before second pass. Takes ~2min
 # slice_a_wav(120)
-# first_pass()
+first_pass()
 
 # #creates new folder of spectrograms and new_df.csv. Then it compares songs, assigns categories, creates images sorted by ST, and creates master sheet. Takes ~2.5min
-second_pass() 
+# second_pass() 
 
 # #input any final ST changes such as "all Cs should be Bs". Creates new folder and new master sheet. Takes ~50sec
 # final_adjustments() 
@@ -1168,7 +1223,7 @@ second_pass()
 # #creates df.csv and folder of prospective spectrograms. delete rows and make changes to intro column in df.csv before second pass. Takes ~1:51
 
 # first_pass_sample()
-# check_the_numbers(260.5, 1)
+# check_the_numbers(404.9, 0.6)
 # first_pass()
 
 # #creates new folder of spectrograms and updates first_pass-.csv. Then it compares songs, assigns categories, creates images sorted by ST, and creates master sheet. Takes ~2min
