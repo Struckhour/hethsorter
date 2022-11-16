@@ -1099,16 +1099,10 @@ def final_adjustments():
     # VARIABLES
 filename = 'HERMIT4_20220504_065328-s-10m-20m'
 
-<<<<<<< HEAD
-intro_max = -35
-intro_onset = intro_max - 15
-intro_threshold = intro_max - 10
-=======
 intro_max = -30
 verification_buffer = 15 #lines with an intro max that is this many dbs below intro_max will be in unverified
 intro_onset = intro_max - 15
 intro_threshold = intro_max - 15
->>>>>>> unverified
 intro_min_length = 9
 intro_max_length = 17
 intro_jumps = 1
