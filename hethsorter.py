@@ -39,12 +39,13 @@ def fourier(filename):
     S_db = S_db[120:743,:]
     return S_db
 
-# LOAD ARRAY FROM H5 AND CREATE SONG ALBUM
+# LOAD ARRAY FROM H5 AND CREATE SONG ALBUM AKA FIRST PASS
 def h5_to_album(filename, sample):
     with h5py.File(filename + '.h5', 'r') as hf:
         data = hf[filename + '_dataset'][:]
     print(np.shape(data))
 
+    #create folders for song pngs, add a nested folder for unverified pngs
     if os.path.exists(filename):
         shutil.rmtree(filename)
     os.mkdir(filename)
@@ -52,9 +53,10 @@ def h5_to_album(filename, sample):
         shutil.rmtree(filename + '/unverified')
     os.mkdir(filename + '/unverified')
     song_album = []
-
+    #start iterating through the whole recording
     i = 0
     rows = len(data)
+    #if this is a sample, it only goes to 2000 columns ~46 seconds. if not, it does the whole recording.
     if sample:
         columns = 2000
     else:
@@ -63,7 +65,7 @@ def h5_to_album(filename, sample):
     print(columns)
     while i < (columns):
         j = 0
-        while j < 400:
+        while j < 400: #this is 400 because there aren't intro songs above 400...usually?
             # print(array[j][i])
             if i >= columns:
                 break
@@ -77,7 +79,7 @@ def h5_to_album(filename, sample):
                     #cut the song out and add it to album
                         song_album.append(add_song_to_album(data, j, rows, i, columns, post_notes, line_dict))
                     # if it has enough post_notes, skip the width of a song and continue on
-                        print(f'found a song at second:{i * 0.023219814}')
+                        print(f'found a song at second:{round(i * 0.023219814, 2)}')
                         if song_album[-1]['status'] == 'verified':
                             i += 70
                             break
@@ -131,6 +133,7 @@ def cut_array_into_specs(array, folder: string, length: float):
         column += length
         name_count += 1
 
+#this creates an album of finalized songs, sorted by their song type
 def make_ST_album(array, combo_df, folder: string, length: float):
     if os.path.exists(folder):
         shutil.rmtree(folder)
@@ -154,7 +157,7 @@ def make_ST_album(array, combo_df, folder: string, length: float):
             save_spect_from_array(new_array, song_name, folder, length, song_title)
         column += length
 
-
+#makes the df for the second pass, when songs have been reviewed and finalized. So there is no verified or unverified.
 def save_df(song_album, dfname):
     datadict = {'intro column': [], 'intro time': [], 'intro freq': [], 'status': [], 'intro length': [],'post size': [], 'soft locs': [], 'loud locs':[]}
 
@@ -171,6 +174,7 @@ def save_df(song_album, dfname):
     df = pd.DataFrame(datadict)
     df.to_csv(dfname + '.csv', index=False)
 
+#makes the first pass df with both verified and unverified songs, sorted by intro note onset time
 def save_df_verified(song_album, dfname):
     datadict = {'intro column': [], 'intro time': [], 'action': [], 'intro freq': [], 'status': [], 'intro length': [],'post size': [], 'soft locs': [], 'loud locs':[]}
 
@@ -188,6 +192,7 @@ def save_df_verified(song_album, dfname):
     df = pd.DataFrame(datadict)
     df.to_csv(dfname + '.csv', index=False)
 
+#depecrated function that uses recursion to find the first thread that makes it to full length, starting with a straight line and working out from there at each step
 def check_for_thread(array, row, column, rows, columns, threshold, max_threshold, min_length, stop_length):
     length_count = 0
     best_length = 0
@@ -250,6 +255,7 @@ def check_for_thread(array, row, column, rows, columns, threshold, max_threshold
     else:
         return {'length': 0}
 
+#no recursion, easier to understand, it just jumps to the loudest value out of the closes five rows in the next column.
 def check_for_thread_strict(array, row, column, rows, columns, threshold, max_threshold, min_length, stop_length):
     length = 1
     line_values = []
@@ -272,26 +278,21 @@ def check_for_thread_strict(array, row, column, rows, columns, threshold, max_th
                 row = new_row
                 length += 1
             else:
+                #end of the line, not max length, so check how it qualifies
                 if (length >= min_length) and (max(line_values) > max_threshold):
-                    # print('medium thread')
-                    # print(line_values)
                     return {'length': length, 'onset time': column, 'onset freq': start_row, 'max db': max(line_values), 'mean freq': round(np.mean(line_freqs), 2), 'status': 'verified', 'max index': line_values.index(max(line_values))}
                 elif (length >= min_length) and (max(line_values) > max_threshold - verification_buffer):
                     return {'length': length, 'onset time': column, 'onset freq': start_row, 'max db': max(line_values), 'mean freq': round(np.mean(line_freqs), 2), 'status': 'unverified', 'max index': line_values.index(max(line_values))}
                 else:
-                    # print(f'did not qualify. length: {length}, max value: {max(line_values)}, line values: {line_values}')
                     return {'length': 0}
+        #while loop ended, so the line is max length. now check where its max value qualifies
         if max(line_values) > max_threshold:
-            # print('max line!')
-            # print(line_values)
             return {'length': length, 'onset time': column, 'onset freq': start_row, 'max db': max(line_values), 'mean freq': round(np.mean(line_freqs), 2), 'status': 'verified', 'max index': line_values.index(max(line_values))}
         elif max(line_values) > max_threshold - verification_buffer:
             return {'length': length, 'onset time': column, 'onset freq': start_row, 'max db': max(line_values), 'mean freq': round(np.mean(line_freqs), 2), 'status': 'unverified', 'max index': line_values.index(max(line_values))}
         else:
-            # print('max value was not above threshold')
             return {'length': 0}
     else:
-        # print('Out of Bounds')
         return {'length': 0}
 
 def check_for_posts(array, post_thresh:float, post_onset:float, column:int, columns:int, rows:int, loud_post_threshold:float):
@@ -371,6 +372,7 @@ def check_for_vertical_splash(array, row, column, rows, splash_range):
         return True
     return False
 
+#this is where song status is checked and songs are sliced and formatted into the album
 def add_song_to_album(array, row, rows, column, columns, post_notes, line_dict):
     vertical_splash = check_for_vertical_splash(array, row, column, rows, 50)
     if (len(post_notes['loud notes']) + len(post_notes['soft notes']) > 2) and (line_dict['status'] == 'verified') and (post_notes['status'] == 'verified') and (not vertical_splash): 
@@ -458,88 +460,88 @@ def store_an_array(filename, start, duration):
         hf.create_dataset(str(duration) + 'seconds' + "_dataset", data=new_seg)
 
                             #FUNCTION FOR CATEGORIZING STs
+#deprecated, counts matches
+# def count_matches(album):
+#     match_dict = {}
+#     for target_song in album:
+#         print(f'TARGET SONG: {target_song}')
+#         target_name = str(target_song['intro freq']) + ';' + str(target_song['intro time'])
+#         match_dict[target_name] = {}
+#         for compare_song in album:
+#             compare_name = str(compare_song['intro freq']) + ';' + str(compare_song['intro time'])
+#             #figure out which one has the most lines and how many
+#             total_notes_1 = len(target_song['post locs'])
+#             total_notes_2 = len(compare_song['post locs'])
+#             max_songs = max(total_notes_1, total_notes_2)
+#             best_score = 0
+#             #this the list of frames to shift left or right to find the best matches
+#             for i in [-5, 0, 5]:
+#                 matches = 0
+#                 for target_note in target_song['post locs']:
+#                     for compare_note in compare_song['post locs']:
+#                         if (abs(target_note[0] - compare_note[0]) < 15) and (abs((target_note[1]+i) - compare_note[1]) < 9):
+#                             matches += 1
+#                 if matches > best_score:
+#                     best_score = matches                
+#             if (target_name == compare_name):
+#                 match_dict[target_name][compare_name] = 0
+#             else:
+#                 match_dict[target_name][compare_name] = round(best_score/max_songs, 2)
+#     print(match_dict)
 
-def count_matches(album):
-    match_dict = {}
-    for target_song in album:
-        print(f'TARGET SONG: {target_song}')
-        target_name = str(target_song['intro freq']) + ';' + str(target_song['intro time'])
-        match_dict[target_name] = {}
-        for compare_song in album:
-            compare_name = str(compare_song['intro freq']) + ';' + str(compare_song['intro time'])
-            #figure out which one has the most lines and how many
-            total_notes_1 = len(target_song['post locs'])
-            total_notes_2 = len(compare_song['post locs'])
-            max_songs = max(total_notes_1, total_notes_2)
-            best_score = 0
-            #this the list of frames to shift left or right to find the best matches
-            for i in [-5, 0, 5]:
-                matches = 0
-                for target_note in target_song['post locs']:
-                    for compare_note in compare_song['post locs']:
-                        if (abs(target_note[0] - compare_note[0]) < 15) and (abs((target_note[1]+i) - compare_note[1]) < 9):
-                            matches += 1
-                if matches > best_score:
-                    best_score = matches                
-            if (target_name == compare_name):
-                match_dict[target_name][compare_name] = 0
-            else:
-                match_dict[target_name][compare_name] = round(best_score/max_songs, 2)
-    print(match_dict)
+#     match_df = pd.DataFrame(match_dict)
+#     # for index, row in match_df.iterrows():
+#     #     match_list = match_df.loc[index].values.flatten().tolist()
+#     #     print(match_list)
+#     #     match_df.loc[index, 'MAX'] = max(match_list)
+#     print(match_df.shape)
+#     match_df.to_csv('match_df-' + filename + '.csv')
 
-    match_df = pd.DataFrame(match_dict)
-    # for index, row in match_df.iterrows():
-    #     match_list = match_df.loc[index].values.flatten().tolist()
-    #     print(match_list)
-    #     match_df.loc[index, 'MAX'] = max(match_list)
-    print(match_df.shape)
-    match_df.to_csv('match_df-' + filename + '.csv')
+# #deprecated
+# def new_count_matches(album):
+#     match_dict = {}
+#     for target_song in album:
+#         target_name = str(target_song['intro freq']) + ';' + str(target_song['intro time'])
+#         match_dict[target_name] = {}
+#         for compare_song in album:
+#             compare_name = str(compare_song['intro freq']) + ';' + str(compare_song['intro time'])
+#             #figure out which one has the most lines and how many
+#             smaller_song = []
+#             larger_song = []
+#             if len(target_song['post locs']) >= len(compare_song['post locs']):
+#                 larger_song_backup = target_song['post locs']
+#                 smaller_song = compare_song['post locs']
+#             else:
+#                 smaller_song = target_song['post locs']
+#                 larger_song_backup = compare_song['post locs']
+#             less_songs = len(smaller_song)
+#             best_score = 0
+#             # distance_sum = []
+#             #this the list of frames to shift left or right to find the best matches
+#             for i in [-5, 0, 5]:
+#                 larger_song = larger_song_backup.copy()
+#                 matches = 0
+#                 # distance_list = []
+#                 for target_note in smaller_song:
+#                     for compare_note in larger_song:
+#                         if (abs(target_note[0] - compare_note[0]) < 15) and (abs((target_note[1]+i) - compare_note[1]) < 10):
+#                             matches += 1
+#                             # larger_song.remove(compare_note)
+#                             # distance = (abs(target_note[0] - compare_note[0])) + (abs(target_note[1] + i - compare_note[1]) + (abs(target_note[2] - compare_note[2])))
+#                             # distance_list.append(distance)
+#                             break
+#                 if matches > best_score:
+#                     best_score = matches
+#                     # distance_sum = sum(distance_list)                
+#             if (target_name == compare_name):
+#                 match_dict[target_name][compare_name] = 0
+#             else:
+#                 match_dict[target_name][compare_name] = round(best_score/less_songs, 2) #distance_sum]
+#                 # print(distance_list)
 
-
-def new_count_matches(album):
-    match_dict = {}
-    for target_song in album:
-        target_name = str(target_song['intro freq']) + ';' + str(target_song['intro time'])
-        match_dict[target_name] = {}
-        for compare_song in album:
-            compare_name = str(compare_song['intro freq']) + ';' + str(compare_song['intro time'])
-            #figure out which one has the most lines and how many
-            smaller_song = []
-            larger_song = []
-            if len(target_song['post locs']) >= len(compare_song['post locs']):
-                larger_song_backup = target_song['post locs']
-                smaller_song = compare_song['post locs']
-            else:
-                smaller_song = target_song['post locs']
-                larger_song_backup = compare_song['post locs']
-            less_songs = len(smaller_song)
-            best_score = 0
-            # distance_sum = []
-            #this the list of frames to shift left or right to find the best matches
-            for i in [-5, 0, 5]:
-                larger_song = larger_song_backup.copy()
-                matches = 0
-                # distance_list = []
-                for target_note in smaller_song:
-                    for compare_note in larger_song:
-                        if (abs(target_note[0] - compare_note[0]) < 15) and (abs((target_note[1]+i) - compare_note[1]) < 10):
-                            matches += 1
-                            # larger_song.remove(compare_note)
-                            # distance = (abs(target_note[0] - compare_note[0])) + (abs(target_note[1] + i - compare_note[1]) + (abs(target_note[2] - compare_note[2])))
-                            # distance_list.append(distance)
-                            break
-                if matches > best_score:
-                    best_score = matches
-                    # distance_sum = sum(distance_list)                
-            if (target_name == compare_name):
-                match_dict[target_name][compare_name] = 0
-            else:
-                match_dict[target_name][compare_name] = round(best_score/less_songs, 2) #distance_sum]
-                # print(distance_list)
-
-    match_df = pd.DataFrame(match_dict)
-    print(match_df.shape)
-    match_df.to_csv('match_df-' + filename + '.csv')
+#     match_df = pd.DataFrame(match_dict)
+#     print(match_df.shape)
+#     match_df.to_csv('match_df-' + filename + '.csv')
 
 def count_both_matches(album):
     match_dict = {}
@@ -719,7 +721,7 @@ def count_both_matches_from_template(album):
     final_df.to_csv('master-' + filename + '.csv', index=False)
 
 
-def new_sort_songs(dict):
+def sort_songs(dict):
     threshold = match_threshold
     song_types = {}
     #stage 1: sort each song in a group with it's closest match if it is above threshold
@@ -826,7 +828,7 @@ def relabel_song_types(dict):
                 for song in dict[category]:
                     song_list.append(int(song.split(';')[0]))
                 median_freq = statistics.median(song_list)
-                if median_freq < lowest_freq: #NEED TO USE MEDIAN HERE
+                if median_freq < lowest_freq:
                     lowest_freq = median_freq
                     lowest_cat = category
         index = len(new_dict)
@@ -1046,6 +1048,14 @@ def set_up():
         data = hf[filename + '_dataset'][:]
     cut_array_into_specs(data, filename+'_chunks', 20)
 
+
+def check_the_numbers(start, duration):
+    with h5py.File(filename + '.h5', 'r') as hf:
+        data = hf[filename + '_dataset'][:]
+    new_seg = make_segment(data, start, duration)
+    df = pd.DataFrame(new_seg)
+    df.to_csv('sample.csv')
+    
 #STORE THE WAV AS AN H5 FILE. BE AWARE, FOURIER SLICES OFF THE BOTTOM AND TOP
 
 def first_pass():
@@ -1062,7 +1072,7 @@ def second_pass():
     count_both_matches(dicty_list)
 
     match_dicty = load_match_df('match_df-' + filename + '.csv')
-    song_types = new_sort_songs(match_dicty)
+    song_types = sort_songs(match_dicty)
     song_types = relabel_song_types(song_types)
     make_selection_table(song_types)
     create_master_df_and_album()
@@ -1128,12 +1138,7 @@ match_threshold = 0.6 #this is the matchscore cutoff for deciding whether a ST g
 
 
     # SAVE DF TO CSV
-def check_the_numbers(start, duration):
-    with h5py.File(filename + '.h5', 'r') as hf:
-        data = hf[filename + '_dataset'][:]
-    new_seg = make_segment(data, start, duration)
-    df = pd.DataFrame(new_seg)
-    df.to_csv('sample.csv')
+
 
 
     # SAVE ARRAY TO H5 FILE
