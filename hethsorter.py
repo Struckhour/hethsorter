@@ -39,8 +39,8 @@ intro_max_length = 17
 intro_jumps = 1
 diff_threshold = 25 #this is how far one value on a thread can jump up or down to the next value
 
-post_max = intro_max - 15
-post_onset = post_max - 15
+post_max = intro_max - 10
+post_onset = post_max - 10
 post_threshold = post_max - 5
 post_min_length = 5
 post_max_length = 15
@@ -99,19 +99,22 @@ def h5_to_album(filename, sample):
                 line_dict = check_for_thread_strict(data, j, i, rows, columns, intro_threshold, intro_max, intro_min_length, intro_max_length)
                 # print(line_dict)
                 if line_dict['length'] > intro_min_length:
+                    print('checking for posts...')
                     post_notes = check_for_posts(data, post_threshold, post_onset, i, columns, rows, loud_post_threshold)
-                    if len(post_notes['soft notes']) + len(post_notes['loud notes']) > 2:
+                    if post_notes: 
                     #cut the song out and add it to album
                         print(f'adding song at second:{round(i * 0.023219814, 2)}')
                         song_album.append(add_song_to_album(data, j, rows, i, columns, post_notes, line_dict))
                     # if it has enough post_notes, skip the width of a song and continue on
-
                         if song_album[-1]['status'] == 'verified':
                             i += 70
                             break
                         else:
                             i += 5
                             break
+                    else:
+                        i += 5
+                        break
             j += 1            
         i += 1
     #save a bunch of spectrograms
@@ -286,6 +289,7 @@ def check_for_thread(array, row, column, rows, columns, threshold, max_threshold
 def check_for_thread_strict(array, row, column, rows, columns, threshold, max_threshold, min_length, stop_length):
     length = 1
     line_values = []
+    index_values = [row]
     line_freqs = []
     start_row = row
     prev_value = array[row, column]
@@ -303,20 +307,21 @@ def check_for_thread_strict(array, row, column, rows, columns, threshold, max_th
                 line_freqs.append(new_row)
                 prev_value = array[new_row, column + length]
                 row = new_row
+                index_values.append(new_row)
                 length += 1
             else:
                 #end of the line, not max length, so check how it qualifies
                 if (length >= min_length) and (max(line_values) > max_threshold):
-                    return {'length': length, 'onset time': column, 'onset freq': start_row, 'max db': max(line_values), 'mean db': np.mean(line_values), 'mean freq': round(np.mean(line_freqs), 2), 'status': 'verified', 'max index': line_values.index(max(line_values))}
+                    return {'length': length, 'onset time': column, 'onset freq': start_row, 'max db': max(line_values), 'mean db': np.mean(line_values), 'mean freq': round(np.mean(line_freqs), 2), 'status': 'verified', 'max index': line_values.index(max(line_values)), 'index values': index_values}
                 elif (length >= min_length) and (max(line_values) > max_threshold - verification_buffer):
-                    return {'length': length, 'onset time': column, 'onset freq': start_row, 'max db': max(line_values), 'mean db': np.mean(line_values), 'mean freq': round(np.mean(line_freqs), 2), 'status': 'unverified', 'max index': line_values.index(max(line_values))}
+                    return {'length': length, 'onset time': column, 'onset freq': start_row, 'max db': max(line_values), 'mean db': np.mean(line_values), 'mean freq': round(np.mean(line_freqs), 2), 'status': 'unverified', 'max index': line_values.index(max(line_values)), 'index values': index_values}
                 else:
                     return {'length': 0}
         #while loop ended, so the line is max length. now check where its max value qualifies
         if max(line_values) > max_threshold:
-            return {'length': length, 'onset time': column, 'onset freq': start_row, 'max db': max(line_values), 'mean db': np.mean(line_values), 'mean freq': round(np.mean(line_freqs), 2), 'status': 'verified', 'max index': line_values.index(max(line_values))}
+            return {'length': length, 'onset time': column, 'onset freq': start_row, 'max db': max(line_values), 'mean db': np.mean(line_values), 'mean freq': round(np.mean(line_freqs), 2), 'status': 'verified', 'max index': line_values.index(max(line_values)), 'index values': index_values}
         elif max(line_values) > max_threshold - verification_buffer:
-            return {'length': length, 'onset time': column, 'onset freq': start_row, 'max db': max(line_values), 'mean db': np.mean(line_values), 'mean freq': round(np.mean(line_freqs), 2), 'status': 'unverified', 'max index': line_values.index(max(line_values))}
+            return {'length': length, 'onset time': column, 'onset freq': start_row, 'max db': max(line_values), 'mean db': np.mean(line_values), 'mean freq': round(np.mean(line_freqs), 2), 'status': 'unverified', 'max index': line_values.index(max(line_values)), 'index values': index_values}
         else:
             return {'length': 0}
     else:
@@ -327,6 +332,8 @@ def check_for_posts(array, post_thresh:float, post_onset:float, column:int, colu
     k = column + 10
     soft_notes = []
     loud_notes = []
+    any_soft_notes = True
+    any_loud_notes = True
         # Check for post introductory portion (2 lines somewhere after the intro note)
     while k < (column + 70) and (k < columns - post_min_length):
         l = 0
@@ -366,44 +373,110 @@ def check_for_posts(array, post_thresh:float, post_onset:float, column:int, colu
                         l += 5
             l += 1
         k += 1
+    all_notes = soft_notes + loud_notes
+    if len(all_notes) < 4:
+        print(f'not enough post notes at {column * 0.023} seconds')
+        return False
     if len(soft_notes) < 1:
+        any_soft_notes = False
         soft_notes.append([0,0,0,0])
     if len(loud_notes) < 1:
+        any_loud_notes = False
         loud_notes.append([0,0,0,0])
-    #check if there are any post notes in the first half
-    loud_note_times = [x[1] for x in loud_notes]
-    soft_note_times = [x[1] for x in soft_notes]
-    if min(loud_note_times) > 35 and min(soft_note_times) > 35:
-        label = 'unverified'
+    #check if there are any post notes beginning in the first half (before 35) and after 15
+    
+    if any_loud_notes:
+        for note in loud_notes:
+            if note[1] > 15 and note[1] < 35:
+                label = 'verified'
+                break
+        else:
+            label = 'unverified'
     else:
-        label = 'verified'
-    return {'soft notes': soft_notes, 'loud notes': loud_notes, 'status': label}
+        label = 'unverified'
+    if label == 'unverified':
+        if any_soft_notes:
+            for note in soft_notes:
+                if note[1] > 15 and note[1] < 35:
+                    label = 'verified'
+                    break
+            else:
+                print(f'no loud notes or soft notes in the sweet spot: {start * 0.023219814} seconds')
+                return False        
+        else:
+            print(f'no loud notes in sweet spot and no soft notes at all: {start * 0.023219814} seconds')
+            return False
+    #check if the post notes span a larger vertical range than 150
+    soft_note_freqs = []
+    loud_note_freqs = []
+    if any_soft_notes:
+        soft_note_freqs = [x[0] for x in soft_notes]
+    if any_loud_notes:
+        loud_note_freqs = [x[0] for x in loud_notes]
+    all_note_freqs = soft_note_freqs + loud_note_freqs
+    lowest_note = min(all_note_freqs)
+    highest_note = max(all_note_freqs)
+    if (highest_note - lowest_note) < 100:
+        print(f'not enough spread in the post notes at {start * 0.023219814} seconds')
+        return False
 
-def check_for_vertical_splash(array, row, column, rows, splash_range, mean_db, max_db, max_index):
-    value_list = [] #HEY DUMMY, FIX THE SPLASH ROWS. IT CROSSES OVER THE LINE BECAUSE IT ALWAYS STARTS AT THE BEGINNING ROW. NOT COOL
+    return {'soft notes': soft_notes, 'loud notes': loud_notes}
+
+def check_for_vertical_splash(array, row, column, rows, splash_range, mean_db, max_db, max_index, index_list):
+    value_list = []
     splash_range_internal = splash_range
-    if row + splash_range + 10 > rows:
-        splash_range_internal = rows - row
+    if index_list[max_index] + splash_range + 10 > rows:
+        splash_range_internal = rows - index_list[max_index]
     for i in range(splash_range_internal):
-        value_list.append(array[row + 10 + i][column + max_index])
+        value_list.append(array[index_list[max_index] + 10 + i][column + max_index])
     if np.mean(value_list) > (mean_db - splash_threshold):
-        print(f'at row: {row}, column: {column + max_index} (max: {max_db}) upper splash over threshold ({mean_db - splash_threshold}) with {np.mean(value_list)}')
+        print(f'at row: {index_list[max_index]}, column: {column + max_index} (max: {max_db}) upper splash over threshold ({mean_db - splash_threshold}) with {np.mean(value_list)}')
         return True
     value_list = []
-    if row - 10 - splash_range < 0:
-        splash_range_internal = row
+    if index_list[max_index] - 10 - splash_range < 0:
+        splash_range_internal = index_list[max_index]
     for i in range(splash_range_internal):
-        value_list.append(array[row - 10 - i][column + max_index])
+        value_list.append(array[index_list[max_index] - 10 - i][column + max_index])
     if np.mean(value_list) > (mean_db - splash_threshold):
-        print(f'at row: {row}, column: {column + max_index} (max: {max_db}) lower splash over threshold ({mean_db - splash_threshold}) with {np.mean(value_list)}')
+        print(f'at row: {index_list[max_index]}, column: {column + max_index} (max: {max_db}) lower splash over threshold ({mean_db - splash_threshold}) with {np.mean(value_list)}')
         return True
-    print(f'at row: {row}, column: {column + max_index} (max: {max_db}) splash did not break threshold ({mean_db - splash_threshold}) with {np.mean(value_list)}')
+    print(f'at row: {index_list[max_index]}, column: {column + max_index} (max: {max_db}) splash did not break threshold ({mean_db - splash_threshold}) with {np.mean(value_list)}')
     return False
+
+def check_for_three_vertical_splash(array, row, column, rows, splash_range, mean_db, max_db, index_list, intro_min_length):
+    score = 0
+    column_spots = [0, floor(intro_min_length/2), intro_min_length]
+    for j in column_spots:
+        value_list = []
+        splash_range_internal = splash_range
+        if index_list[j] + splash_range + 10 > rows:
+            return False
+        for i in range(splash_range_internal):
+            value_list.append(array[index_list[j] + 10 + i][column + j])
+        if np.mean(value_list) > (mean_db - splash_threshold):
+            # print(f'at row: {index_list[j]}, column: {column + j} upper splash over threshold ({mean_db - splash_threshold}) with {np.mean(value_list)}')
+            score += 1
+        value_list = []
+        if index_list[j] - 10 - splash_range < 0:
+            return False
+        for i in range(splash_range_internal):
+            value_list.append(array[index_list[j] - 10 - i][column + j])
+        if np.mean(value_list) > (mean_db - splash_threshold):
+            
+            score += 1
+        
+    if score > 1:
+        print(f'at row: {index_list[j]}, column: {column + j} (max: {max_db}) score: {score} was over 1. Threshold: ({mean_db - splash_threshold})')
+        return True
+    else:
+        print(f'at row: {index_list[j]}, column: {column + j} (max: {max_db}) score: {score} was under 2. Threshold: ({mean_db - splash_threshold})')
+        return False
 
 #this is where song status is checked and songs are sliced and formatted into the album
 def add_song_to_album(array, row, rows, column, columns, post_notes, line_dict):
-    vertical_splash = check_for_vertical_splash(array, row, column, rows, 30, line_dict['mean db'], line_dict['max db'], line_dict['max index'])
-    if (len(post_notes['loud notes']) + len(post_notes['soft notes']) > 2) and (line_dict['status'] == 'verified') and (post_notes['status'] == 'verified') and (not vertical_splash): 
+    vertical_splash = check_for_three_vertical_splash(array, row, column, rows, 30, line_dict['mean db'], line_dict['max db'], line_dict['index values'], intro_min_length)
+    # array, row, column, rows, splash_range, mean_db, max_db, index_list, intro_min_length
+    if (len(post_notes['loud notes']) + len(post_notes['soft notes']) > 2) and (line_dict['status'] == 'verified') and (not vertical_splash): 
         label = 'verified'
         # a song has been identified and is now added to an array
     else:
@@ -926,10 +999,11 @@ def create_song_album_from_df(dicty_list, filename: string):
                         if line_dict['length'] > intro_min_length:
                             post_notes = check_for_posts(data, post_threshold, post_onset, i, columns, rows, loud_post_threshold)
                             #cut the song out and add it to album
-                            song_album.append(add_song_to_album(data, j, rows, i, columns, post_notes, line_dict))
-                            print('added a new song to the song album!')
-                            i += 70
-                            break
+                            if post_notes:
+                                song_album.append(add_song_to_album(data, j, rows, i, columns, post_notes, line_dict))
+                                print('added a new song to the song album!')
+                                i += 70
+                                break
                     j += 1            
                 i += 1
             
