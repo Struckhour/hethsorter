@@ -34,7 +34,7 @@ intro_max = -30
 verification_buffer = 10 #lines with an intro max that is this many dbs below intro_max will be in unverified
 intro_onset = intro_max - 15
 intro_threshold = intro_max - 15
-intro_min_length = 9
+intro_min_length = 8
 intro_max_length = 17
 intro_jumps = 1
 diff_threshold = 25 #this is how far one value on a thread can jump up or down to the next value
@@ -90,33 +90,40 @@ def h5_to_album(filename, sample):
     print(columns)
     while i < (columns):
         j = 0
-        while j < 400: #this is 400 because there aren't intro songs above 400...usually?
+        check_higher_intros = False
+        while j < 450: #this is 450 because there aren't intro songs above 450...usually????
             # print(array[j][i])
             if i >= columns:
                 break
             if (data[j][i] > intro_onset):
-                # print(f'checking a new pixel at column: {i}, row: {j}')
                 line_dict = check_for_thread_strict(data, j, i, rows, columns, intro_threshold, intro_max, intro_min_length, intro_max_length)
-                # print(line_dict)
                 if line_dict['length'] > intro_min_length:
-                    print('checking for posts...')
-                    post_notes = check_for_posts(data, post_threshold, post_onset, i, columns, rows, loud_post_threshold)
-                    if post_notes: 
-                    #cut the song out and add it to album
-                        print(f'adding song at second:{round(i * 0.023219814, 2)}')
-                        song_album.append(add_song_to_album(data, j, rows, i, columns, post_notes, line_dict))
-                    # if it has enough post_notes, skip the width of a song and continue on
-                        if song_album[-1]['status'] == 'verified':
-                            i += 70
-                            break
+                    vertical_splash = check_for_three_vertical_splash(data, j, i, rows, 30, line_dict['mean db'], line_dict['max db'], line_dict['index values'], intro_min_length)
+                    #check here for verification of the intro note!!!!!!!!!!!!! take it out of add_song_to_album
+                    if (not check_higher_intros) or (check_higher_intros and not vertical_splash and (line_dict['status'] == 'verified')):
+                        print('checking for posts...')
+                        post_notes = check_for_posts(data, post_threshold, post_onset, i, columns, rows, loud_post_threshold)
+                        if post_notes:
+                            if check_higher_intros:
+                                song_album.pop()
+                        #cut the song out and add it to album
+                            print(f'adding song at second:{round(i * 0.023219814, 2)}')
+                            song_album.append(add_song_to_album(data, j, rows, i, columns, post_notes, line_dict, vertical_splash))
+                        # if it has enough post_notes, skip the width of a song and continue on
+                            if song_album[-1]['status'] == 'verified':
+                                i += 70
+                                break
+                            else:
+                                check_higher_intros = True
+                                j += 20
                         else:
-                            i += 5
+                            i += 3
                             break
-                    else:
-                        i += 5
-                        break
-            j += 1            
-        i += 1
+            j += 2
+        if check_higher_intros:            
+            i += 3
+        else:
+            i += 2
     #save a bunch of spectrograms
     print('saving spectrograms...')
     save_images(song_album, filename)
@@ -294,11 +301,11 @@ def check_for_thread_strict(array, row, column, rows, columns, threshold, max_th
     start_row = row
     prev_value = array[row, column]
     line_values.append(prev_value)
-    if (row > (2*stop_length)) and (row < (rows - 2*stop_length)) and (column < columns - stop_length):
+    if (row > (3*stop_length)) and (row < (rows - 3*stop_length)) and (column < columns - stop_length):
         while (length < stop_length):
             next_value = -80
             new_row = 0
-            for i in [0, -1, 1, -2, 2]:
+            for i in [0, -1, 1, -2, 2, -3, 3]:
                 if (array[row + i, column + length] > next_value):
                     next_value = array[row + i, column + length]
                     new_row = row + i
@@ -473,15 +480,13 @@ def check_for_three_vertical_splash(array, row, column, rows, splash_range, mean
         return False
 
 #this is where song status is checked and songs are sliced and formatted into the album
-def add_song_to_album(array, row, rows, column, columns, post_notes, line_dict):
-    vertical_splash = check_for_three_vertical_splash(array, row, column, rows, 30, line_dict['mean db'], line_dict['max db'], line_dict['index values'], intro_min_length)
-    # array, row, column, rows, splash_range, mean_db, max_db, index_list, intro_min_length
+def add_song_to_album(array, row, rows, column, columns, post_notes, line_dict, vertical_splash):
     if (len(post_notes['loud notes']) + len(post_notes['soft notes']) > 2) and (line_dict['status'] == 'verified') and (not vertical_splash): 
         label = 'verified'
         # a song has been identified and is now added to an array
     else:
         label = 'unverified'
-    if column+70 < columns:
+    if column+70 <= columns:
         new_array = array[:,column:column+70]
     else:
         # add columns to a clipped song so that it fits with the others
@@ -1364,7 +1369,7 @@ def load_variables():
 # #creates df.csv and folder of prospective spectrograms. delete rows and make changes to intro column in df.csv before second pass. Takes ~1:51
 
 # first_pass_sample()
-# check_the_numbers(384.71, 0.6)
+# check_the_numbers(402.86, 0.6)
 first_pass()
 
 # #creates new folder of spectrograms and updates first_pass-.csv. Then it compares songs, assigns categories, creates images sorted by ST, and creates master sheet. Takes ~2min
