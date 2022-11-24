@@ -10,7 +10,6 @@ import h5py
 import matplotlib.pylab as plt
 import seaborn as sns
 import os
-import csv
 import ast
 import librosa
 import librosa.display
@@ -29,9 +28,11 @@ color_cycle = cycle(plt.rcParams["axes.prop_cycle"].by_key()["color"])
 
 
     # VARIABLES
-filename = 'HERMIT4_20220504_065328-s-30m-40m-344s-end-slice'
+recording_name = 'HERMIT4_20220504_065328-s'
+directory = recording_name + '/'
+filename = 'HERMIT4_20220504_065328-s-0m-10m-220s-end-slice'
 
-intro_max = -30
+intro_max = -35
 verification_buffer = 10 #lines with an intro max that is this many dbs below intro_max will be in unverified
 intro_onset = intro_max - 15
 intro_threshold = intro_max - 15
@@ -70,19 +71,21 @@ def fourier(filename):
 
 # LOAD ARRAY FROM H5 AND CREATE SONG ALBUM AKA FIRST PASS
 def h5_to_album(filename, sample):
-    with h5py.File(filename + '.h5', 'r') as hf:
+    with h5py.File(directory + filename + '.h5', 'r') as hf:
         data = hf[filename + '_dataset'][:]
     print(np.shape(data))
 
     #create folders for song pngs, add a nested folder for unverified pngs
-    if os.path.exists(filename):
-        shutil.rmtree(filename)
-    os.mkdir(filename)
-    if os.path.exists(filename + '/unverified'):
-        shutil.rmtree(filename + '/unverified')
-    os.mkdir(filename + '/unverified')
-    os.makedirs(filename + '/training/positives/')
-    os.mkdir(filename + '/training/negatives')
+    if os.path.exists(directory + filename):
+        shutil.rmtree(directory + filename)
+    os.mkdir(directory + filename)
+    # if os.path.exists(directory + filename + '/unverified'):
+    #     shutil.rmtree(directory + filename + '/unverified')
+    os.mkdir(directory + filename + '/unverified')
+    os.makedirs(directory + filename + '/training_intros/positives/')
+    os.mkdir(directory + filename + '/training_intros/negatives')
+    os.makedirs(directory + filename + '/training_songs/positives/')
+    os.mkdir(directory + filename + '/training_songs/negatives')
     song_album = []
     #start iterating through the whole recording
     i = 0
@@ -120,6 +123,7 @@ def h5_to_album(filename, sample):
                                     print(f'row: {j}, time: {i * 0.023219814}, unverified by the splash function')
                                 song_album.append(add_song_to_album(data, j, rows, i, columns, post_notes, line_dict, vertical_splash))
                                 save_intro_png(data, j, i, line_dict, vertical_splash)
+                                save_song_png(data, j, i, line_dict, vertical_splash)
                             # since it has the right post_notes and a good intro note, skip the width of a song and continue on
                                 if song_album[-1]['status'] == 'verified':
                                     i += 70
@@ -142,19 +146,18 @@ def h5_to_album(filename, sample):
     save_images(song_album, filename)
     #save the album as a dataframe and then csv
     print('saving csv...')
-    save_df_verified(song_album, 'first_pass_df-' + filename)
+    save_df_verified(song_album, directory + 'first_pass_df-' + filename)
 
+#saves pngs for the intro notes and sorts them into verified and unverified
 def save_intro_png(array, row, column, line_dict, vertical_splash):
-    song_name = str(round((line_dict['onset time']) * 0.023219814, 2))
-    song_name = song_name.replace('.', '-')
+    start_string = '{:.2f}'.format((round((line_dict['onset time']) * 0.023219814, 2)))
+    start_time = start_string.replace('.', '-')
     if line_dict['status'] == 'verified' and not vertical_splash:
-        folder = 'training/positives/'
+        folder = 'training_intros/positives/'
     else:
-        folder = 'training/negatives/'
-    song_name = filename + '/' + folder + filename + '-' + song_name + '.png'
-    # if not os.path.exists(filename + '/training'):
-    #     os.makedirs(filename + '/training/positives/')
-    #     os.mkdir(filename + '/training/negatives')
+        folder = 'training_intros/negatives/'
+    song_name = directory + filename + '/' + folder + start_time + '-intro-' + filename + '.png'
+
     midrow = floor((max(line_dict['index values']) -  min(line_dict['index values'])) / 2)
     top_row = row+ midrow+30
     bot_row = row+ midrow-29
@@ -165,14 +168,30 @@ def save_intro_png(array, row, column, line_dict, vertical_splash):
     intro_image = intro_image.convert('RGB')
     intro_image.save(song_name)
 
+#saves pngs for the whole song. Note: they are upside down do to row numbering on spectrograms start bottom left and on images start top left
+def save_song_png(array, row, column, line_dict, vertical_splash):
+    start_string = '{:.2f}'.format((round((line_dict['onset time']) * 0.023219814, 2)))
+    start_time = start_string.replace('.', '-')
+    if line_dict['status'] == 'verified' and not vertical_splash:
+        folder = 'training_songs/positives/'
+    else:
+        folder = 'training_songs/negatives/'
+    song_name = directory + filename + '/' + folder + start_time + '-' + filename + '.png'
+   
+    intro_array = array[:, column:column+69].copy()
+    intro_array = (intro_array+80)*(255/80)
+    intro_image = im.fromarray(intro_array)
+    intro_image = intro_image.convert('RGB')
+    intro_image.save(song_name)
+
 def save_images(song_album, filename):
     for i in range(len(song_album)):
         song_name = str(song_album[i]['intro time'])
         song_name = song_name.replace('.', '-')
         if song_album[i]['status'] == 'verified':
-            save_spect(song_album[i], song_name, filename)
+            save_spect(song_album[i], song_name, directory + filename)
         else:
-            save_spect(song_album[i], song_name, filename + '/unverified')
+            save_spect(song_album[i], song_name, directory + filename + '/unverified')
 
 def cut_array_into_specs(array, folder: string, length: float):
     if os.path.exists(folder):
@@ -506,7 +525,7 @@ def add_song_to_album(array, row, rows, column, columns, post_notes, line_dict, 
         zero_array[:,:-col_diff] = new_array
         new_array = zero_array
     # store the song
-    return {"intro column": line_dict['onset time'], "intro time": round((line_dict['onset time']) * 0.023219814, 2), "intro freq": line_dict['onset freq'], "intro length":line_dict['length'], "intro values":line_dict['line values'], "array": new_array, "status": label, "soft notes": post_notes['soft notes'], "loud notes": post_notes['loud notes']}
+    return {"intro column": line_dict['onset time'], "intro time": '{:.2f}'.format(round((line_dict['onset time']) * 0.023219814, 2)), "intro freq": line_dict['onset freq'], "intro length":line_dict['length'], "intro values":line_dict['line values'], "array": new_array, "status": label, "soft notes": post_notes['soft notes'], "loud notes": post_notes['loud notes']}
 
                                 # FUNCTIONS FOR SAVING OR DISPLAYING SPECTROGRAMS
 
@@ -1015,7 +1034,7 @@ def make_selection_table(dicty):
     df.to_csv('new_selection_table-' + filename + '.csv', index=False)
 
 def create_song_album_from_df(dicty_list, filename: string):
-    with h5py.File(filename + '.h5', 'r') as hf:
+    with h5py.File(directory + filename + '.h5', 'r') as hf:
         data = hf[filename + '_dataset'][:]
     song_album = []
     # if os.path.exists(filename):
@@ -1045,28 +1064,45 @@ def create_song_album_from_df(dicty_list, filename: string):
                                 break
                     j += 1            
                 i += 1
-            song_name = str(dicty['intro time'])
+            song_name = '{:.2f}'.format(dicty['intro time'])
             song_name = song_name.replace('.', '-')
             song_name = song_name + '.png'
-            if os.path.exists(filename + '/' + song_name):
-                os.remove(filename + '/' + song_name)
+            if os.path.exists(directory + filename + '/' + song_name):
+                os.remove(directory + filename + '/' + song_name)
 
         if dicty['action'] == 'v':
             #move png up a folder and change its status
-            song_name = str(dicty['intro time'])
+            song_name = '{:.2f}'.format(dicty['intro time'])
             song_name = song_name.replace('.', '-')
             song_name = song_name + '.png'
-            if os.path.exists(filename + "/unverified/" + song_name):
-                os.rename(filename + "/unverified/" + song_name, filename + '/' + song_name)
+            if os.path.exists(directory + filename + '/unverified/' + song_name):
+                os.rename(directory + filename + '/unverified/' + song_name, filename + '/' + song_name)
             dicty['status'] = 'verified'
+
+            start_string = '{:.2f}'.format(dicty['intro time'])
+            start_time = start_string.replace('.', '-')
+#           if line_dict['status'] == 'verified' and not vertical_splash:
+#               folder = 'training_intros/positives/'
+#           else:
+#               folder = 'training_intros/negatives/'
+#           song_name = filename + '/' + folder + start_time + '-intro-' + filename + '.png'
+            if os.path.exists(directory + filename + '/training_intros/negatives/' + start_time + '-intro-' + filename + '.png'):
+                os.rename(directory + filename + '/training_intros/negatives/' + start_time + '-intro-' + filename + '.png', directory + filename + '/training_songs/positives/' + start_time + '-' + filename + '.png')
+            if os.path.exists(directory + filename + '/training_songs/negatives/' + start_time + '-' + filename + '.png'):
+                os.rename(directory + filename + '/training_songs/negatives/' + start_time + '-' + filename + '.png', directory + filename + '/training_songs/positives/' + start_time + '-' + filename + '.png')
         if dicty['action'] == 'd':
             #delete the png and change status to unverified so it will be deleted below
-            song_name = str(dicty['intro time'])
+            song_name = '{:.2f}'.format(dicty['intro time'])
             song_name = song_name.replace('.', '-')
             song_name = song_name + '.png'
-            if os.path.exists(filename + '/' + song_name):
-                os.remove(filename + '/' + song_name)
+            if os.path.exists(directory + filename + '/' + song_name):
+                os.remove(directory + filename + '/' + song_name)
             dicty['status'] = 'unverified'
+
+            if os.path.exists(directory + filename + '/training_intros/positives/' + start_time + '-intro-' + filename + '.png'):
+                os.rename(directory + filename + '/training_intros/positives/' + start_time + '-intro-' + filename + '.png', directory + filename + '/training_songs/negatives/' + start_time + '-' + filename + '.png')
+            if os.path.exists(directory + filename + '/training_songs/positives/' + start_time + '-' + filename + '.png'):
+                os.rename(directory + filename + '/training_songs/positives/' + start_time + '-' + filename + '.png', directory + filename + '/training_songs/negatives/' + start_time + '-' + filename + '.png')
     #save a bunch of spectrograms
     for song in song_album:
         if song['status'] == 'unverified':
@@ -1144,7 +1180,7 @@ def load_match_df(filename:string):
 def create_master_df_and_album():
     print('creating album...')
     album = load_df('second_pass_df-' + filename + '.csv')
-    with h5py.File(filename + '.h5', 'r') as hf:
+    with h5py.File(directory + filename + '.h5', 'r') as hf:
         data = hf[filename + '_dataset'][:]
     sel_table = load_sel_table('new_selection_table-' + filename + '.csv')
     ST_df = pd.DataFrame(sel_table)
@@ -1156,7 +1192,7 @@ def create_master_df_and_album():
     ST_change_dict = {'current name': [], 'switch to': [], 'single time': [], 'switch single to': []}
     ST_change_df = pd.DataFrame(ST_change_dict)
     ST_change_df.to_csv('ST_change_file-' + filename + '.csv', index=False)
-    make_ST_album(data, combo_df, 'STs-' + filename, 70)
+    make_ST_album(data, combo_df, directory + 'STs-' + filename, 70)
 
 def change_categories():
     letter_names = ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H','I', 'J','K','L','M','N','O','P','Q','R','S','T','U','V','W','X','Y','Z']
@@ -1193,71 +1229,75 @@ def change_categories():
     master_df = master_df.sort_values(by=['intro time'])
     master_df.to_csv('master-' + filename +'.csv', index=False)
 
-    with h5py.File(filename + '.h5', 'r') as hf:
+    with h5py.File(directory + filename + '.h5', 'r') as hf:
         data = hf[filename + '_dataset'][:]
-    make_ST_album(data, master_df, 'STs-' + filename, 70)
+    make_ST_album(data, master_df, directory + 'STs-' + filename, 70)
 
 def change_categories_from_master():
-    with h5py.File(filename + '.h5', 'r') as hf:
+    with h5py.File(directory + filename + '.h5', 'r') as hf:
         data = hf[filename + '_dataset'][:]
     master_df = pd.read_csv('master-' + filename + '.csv')
-    make_ST_album(data, master_df, 'STs-' + filename, 70)
+    make_ST_album(data, master_df, directory + 'STs-' + filename, 70)
     # for index, row in master_df.iterrows():
     #     if not os.path.exists(filename + '/' + row['ID'] + '-' + str(floor(row['intro time'])) + '.png'):
     #         os.remove(filename + '/' + song_name)
                     # WORKFLOW FUNCTIONS
 
 def cut_wav_into_ten_minute_wavs():
-    t1 = 0 #Works in milliseconds
-    t2 = 600000    
-    newAudio = AudioSegment.from_wav(filename + '.wav')
-    length = newAudio.duration_seconds * 1000
-    print(f'total length of wav: {length}')
-    while t2 < length:
-        newSlice = newAudio[t1:t2]
-        name_t1 = str(int(t1 / 60000))
-        name_t2 = str(int(t2 / 60000))
-        name = filename + '-' + name_t1 + 'm-' + name_t2 + 'm.wav'
-        newSlice.export(name, format="wav") #Exports to a wav file in the current path.
-        t1 = t1 + 600000
-        t2 = t2 + 600000
-    if t2 < length + 60000:
-        newSlice = newAudio[t1:]
-        name_t1 = str(int(t1 / 60000))
-        name = filename + '-' + name_t1 + 'm-end.wav'
-        newSlice.export(name, format="wav") #Exports to a wav file in the current path.
+    if os.path.exists(filename):
+        print('found it!')
+    if not os.path.exists(filename):
+        os.mkdir(recording_name)
+        t1 = 0 #Works in milliseconds
+        t2 = 600000
+        newAudio = AudioSegment.from_wav(filename + '.wav')
+        length = newAudio.duration_seconds * 1000
+        print(f'total length of wav: {length}')
+        while t2 < length:
+            newSlice = newAudio[t1:t2]
+            name_t1 = str(int(t1 / 60000))
+            name_t2 = str(int(t2 / 60000))
+            name = directory + filename + '-' + name_t1 + 'm-' + name_t2 + 'm.wav'
+            newSlice.export(name, format="wav") #Exports to a wav file in the current path.
+            t1 = t1 + 600000
+            t2 = t2 + 600000
+        if t2 < length + 60000:
+            newSlice = newAudio[t1:]
+            name_t1 = str(int(t1 / 60000))
+            name = directory + filename + '-' + name_t1 + 'm-end.wav'
+            newSlice.export(name, format="wav") #Exports to a wav file in the current path.
 
 def slice_a_wav(start, end = 10000):
     t1 = start * 1000 #Works in milliseconds
     t2 = end * 1000
-    newAudio = AudioSegment.from_wav(filename + '.wav')
+    newAudio = AudioSegment.from_wav(directory + filename + '.wav')
     length = newAudio.duration_seconds * 1000
 
     if end > length / 1000:
         newSlice = newAudio[t1:]
-        name = filename + '-' + str(start) + 's-' + 'end-' + 'slice' + '.wav'
+        name = directory + filename + '-' + str(start) + 's-' + 'end-' + 'slice' + '.wav'
         newSlice.export(name, format="wav") #Exports to a wav file in the current path.
     else:
         newSlice = newAudio[t1:t2]
-        name = filename + '-' + str(start) + 's-' + str(end) + 's-slice' + '.wav'
+        name = directory + filename + '-' + str(start) + 's-' + str(end) + 's-slice' + '.wav'
         newSlice.export(name, format="wav") #Exports to a wav file in the current path.
 
 
 def set_up():
-    data = fourier(filename + '.wav')
+    data = fourier(directory + filename + '.wav')
     print(np.shape(data))
-    with h5py.File(filename + '.h5', 'w') as hf:
+    with h5py.File(directory + filename + '.h5', 'w') as hf:
         hf.create_dataset(filename + "_dataset", data=data)
 
 
-    #CUT ARRAY INTO CHUNKS
-    # with h5py.File(filename + '.h5', 'r') as hf:
-    #     data = hf[filename + '_dataset'][:]
-    # cut_array_into_specs(data, filename+'_chunks', 20)
+    # CUT ARRAY INTO CHUNKS
+    with h5py.File(directory + filename + '.h5', 'r') as hf:
+        data = hf[filename + '_dataset'][:]
+    cut_array_into_specs(data, directory + filename + '_chunks', 20)
 
 
 def check_the_numbers(start, duration):
-    with h5py.File(filename + '.h5', 'r') as hf:
+    with h5py.File(directory + filename + '.h5', 'r') as hf:
         data = hf[filename + '_dataset'][:]
     new_seg = make_segment(data, start, duration)
     df = pd.DataFrame(new_seg)
@@ -1272,29 +1312,29 @@ def first_pass_sample():
     h5_to_album(filename, True)
 
 def second_pass():
-    dicty_list = load_df('first_pass_df-' + filename + '.csv')
-    create_song_album_from_df(dicty_list, filename)
+    dicty_list = load_df(directory + 'first_pass_df-' + filename + '.csv')
+    create_song_album_from_df(dicty_list, directory + filename)
 
-    dicty_list = load_df('second_pass_df-' + filename + '.csv')
+    dicty_list = load_df(directory + 'second_pass_df-' + filename + '.csv')
     count_both_matches(dicty_list)
 
 def categorize():
-    match_dicty = load_match_df('match_df-' + filename + '.csv')
+    match_dicty = load_match_df(directory + 'match_df-' + filename + '.csv')
     song_types = sort_songs(match_dicty)
     song_types = relabel_song_types(song_types)
     make_selection_table(song_types)
     create_master_df_and_album()
 
 def second_pass_with_template():
-    dicty_list = load_df('first_pass_df-' + filename + '.csv')
-    create_song_album_from_df(dicty_list, filename)
+    dicty_list = load_df(directory + 'first_pass_df-' + filename + '.csv')
+    create_song_album_from_df(dicty_list, directory + filename)
 
-    dicty_list = load_df('second_pass_df-' + filename + '.csv')
+    dicty_list = load_df(directory + 'second_pass_df-' + filename + '.csv')
     count_both_matches_from_template(dicty_list)
-    combo_df = pd.read_csv('master-' + filename + '.csv')
-    with h5py.File(filename + '.h5', 'r') as hf:
+    combo_df = pd.read_csv(directory + 'master-' + filename + '.csv')
+    with h5py.File(directory + filename + '.h5', 'r') as hf:
         data = hf[filename + '_dataset'][:]
-    make_ST_album(data, combo_df, 'STs-' + filename, 70)
+    make_ST_album(data, combo_df, directory + 'STs-' + filename, 70)
     # ST_change_dict = {'current name': [], 'switch to': [], 'single time': [], 'switch single to': []}
     # ST_change_df = pd.DataFrame(ST_change_dict)
     # ST_change_df.to_csv('ST_change_file-' + filename + '.csv', index=False)
@@ -1337,7 +1377,7 @@ def final_adjustments_from_template():
 # save_whole_spect(data, 'twentysecfig')
 
     # LOAD H5 TO NP ARRAY and DISPLAY A SEGMENT
-# with h5py.File(filename + '.h5', 'r') as hf:
+# with h5py.File(directory + filename + '.h5', 'r') as hf:
 #     data = hf[filename + '_dataset'][:]
 # print(np.shape(data))
 # data = make_segment(data, 402.8, 2)
@@ -1345,7 +1385,7 @@ def final_adjustments_from_template():
 
 #    LOAD H5 TO NP ARRAY and SAVE A SEGMENT
 # set_up()
-# with h5py.File(filename + '.h5', 'r') as hf:
+# with h5py.File(directory + filename + '.h5', 'r') as hf:
 #     data = hf[filename + '_dataset'][:]
 # data = make_segment(data, 44, 1)
 # save_whole_spect(data, 'noise')
@@ -1397,11 +1437,12 @@ def load_variables():
 #fourier transform, stores h5 file, creates 20sec spectrograms. Have a look at thresholds. Takes ~40sec
 # cut_wav_into_ten_minute_wavs()
 # set_up() 
+# slice_a_wav(220)
 
 # first_pass_sample() # this grabs a little sample of the data to inspect
 # #creates df.csv and folder of prospective spectrograms. delete rows and make changes to intro column in df.csv before second pass. Takes ~2min
-# slice_a_wav(0, 499)
-# first_pass()
+
+first_pass()
 
 # #creates new folder of spectrograms and new_df.csv. Then it compares songs, assigns categories, creates images sorted by ST, and creates master sheet. Takes ~2.5min
 # second_pass() 
@@ -1420,12 +1461,13 @@ def load_variables():
 
 # EXECUTE CODE BELOW HERE FOR LATER RECORDINGS OF A BIRD
 #fourier transform, stores h5 file, creates 20sec spectrograms. Have a look at thresholds. takes ~51sec
+# slice_a_wav(220)
 # set_up() 
-# slice_a_wav(344)
+
 
 # #creates df.csv and folder of prospective spectrograms. delete rows and make changes to intro column in df.csv before second pass. Takes ~1:51
 
-first_pass_sample()
+# first_pass_sample()
 # check_the_numbers(148.19, 0.6)
 # first_pass()
 
