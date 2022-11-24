@@ -18,6 +18,7 @@ import IPython.display as ipd
 import shutil
 from pydub import AudioSegment
 import statistics
+from PIL import Image as im
 
 
 from itertools import cycle
@@ -28,7 +29,7 @@ color_cycle = cycle(plt.rcParams["axes.prop_cycle"].by_key()["color"])
 
 
     # VARIABLES
-filename = 'HERMIT4_20220504_065328-s-20m-30m-0s-499s-slice'
+filename = 'HERMIT4_20220504_065328-s-30m-40m-344s-end-slice'
 
 intro_max = -30
 verification_buffer = 10 #lines with an intro max that is this many dbs below intro_max will be in unverified
@@ -38,15 +39,17 @@ intro_min_length = 8
 intro_max_length = 17
 intro_jumps = 1
 diff_threshold = 25 #this is how far one value on a thread can jump up or down to the next value
+splash_threshold = 20 #how far below the average intro note value does the outer cloud need to be? If the cloud is above this, it trips the splash function
 
-post_max = intro_max - 10
+
+post_max = intro_max - 5
 post_onset = post_max - 10
-post_threshold = post_max - 5
+post_threshold = post_max - 10
 post_min_length = 5
 post_max_length = 15
 post_jumps = 1
-loud_post_threshold = post_max + 15
-splash_threshold = 20 #the higher the number, the more songs will be unverified, more false negs, less false pos
+loud_post_threshold = post_max + 10
+
 
 
 clumping_threshold = 0.1 #this is the threshold for combining ST categories based on a ratio of average match scores
@@ -62,6 +65,7 @@ def fourier(filename):
     S_db = librosa.amplitude_to_db(np.abs(D), ref=np.max)
     print(np.shape(S_db))
     S_db = S_db[120:743,:]
+    # S_db = S_db[220:283,:]
     return S_db
 
 # LOAD ARRAY FROM H5 AND CREATE SONG ALBUM AKA FIRST PASS
@@ -77,12 +81,15 @@ def h5_to_album(filename, sample):
     if os.path.exists(filename + '/unverified'):
         shutil.rmtree(filename + '/unverified')
     os.mkdir(filename + '/unverified')
+    os.makedirs(filename + '/training/positives/')
+    os.mkdir(filename + '/training/negatives')
     song_album = []
     #start iterating through the whole recording
     i = 0
     rows = len(data)
     #if this is a sample, it only goes to 2000 columns ~46 seconds. if not, it does the whole recording.
     if sample:
+        i = 0
         columns = 2000
     else:
         columns = len(data[0])
@@ -99,27 +106,33 @@ def h5_to_album(filename, sample):
                 line_dict = check_for_thread_strict(data, j, i, rows, columns, intro_threshold, intro_max, intro_min_length, intro_max_length)
                 if line_dict['length'] > intro_min_length:
                     vertical_splash = check_for_three_vertical_splash(data, j, i, rows, 30, line_dict['mean db'], line_dict['max db'], line_dict['index values'], intro_min_length)
-                    #check here for verification of the intro note!!!!!!!!!!!!! take it out of add_song_to_album
                     if (not check_higher_intros) or (check_higher_intros and not vertical_splash and (line_dict['status'] == 'verified')):
-                        print('checking for posts...')
                         post_notes = check_for_posts(data, post_threshold, post_onset, i, columns, rows, loud_post_threshold)
                         if post_notes:
-                            if check_higher_intros:
-                                song_album.pop()
-                        #cut the song out and add it to album
-                            print(f'adding song at second:{round(i * 0.023219814, 2)}')
-                            song_album.append(add_song_to_album(data, j, rows, i, columns, post_notes, line_dict, vertical_splash))
-                        # if it has enough post_notes, skip the width of a song and continue on
-                            if song_album[-1]['status'] == 'verified':
-                                i += 70
-                                break
+                            if not (vertical_splash and line_dict['status'] == 'unverified'):
+                                if check_higher_intros:
+                                    pop_song = song_album.pop()
+                                    print(f'popping song at {pop_song["intro time"]}')
+                            #cut the song out and add it to album
+                                if line_dict['status'] == 'unverified':
+                                    print(f'row: {j}, time: {i * 0.023219814}, intro note not loud enough')
+                                if vertical_splash:
+                                    print(f'row: {j}, time: {i * 0.023219814}, unverified by the splash function')
+                                song_album.append(add_song_to_album(data, j, rows, i, columns, post_notes, line_dict, vertical_splash))
+                                save_intro_png(data, j, i, line_dict, vertical_splash)
+                            # since it has the right post_notes and a good intro note, skip the width of a song and continue on
+                                if song_album[-1]['status'] == 'verified':
+                                    i += 70
+                                    break
+                                else:
+                                    check_higher_intros = True
                             else:
-                                check_higher_intros = True
-                                j += 20
+                                print(f'row: {j}, time: {i * 0.023219814}, unverified by vertical splash and too soft of an intro note')
                         else:
-                            i += 3
+                            print(f'row: {j}, time: {i * 0.023219814}, did not pass post note tests')
+                            i += 1
                             break
-            j += 2
+            j += 5
         if check_higher_intros:            
             i += 3
         else:
@@ -130,6 +143,27 @@ def h5_to_album(filename, sample):
     #save the album as a dataframe and then csv
     print('saving csv...')
     save_df_verified(song_album, 'first_pass_df-' + filename)
+
+def save_intro_png(array, row, column, line_dict, vertical_splash):
+    song_name = str(round((line_dict['onset time']) * 0.023219814, 2))
+    song_name = song_name.replace('.', '-')
+    if line_dict['status'] == 'verified' and not vertical_splash:
+        folder = 'training/positives/'
+    else:
+        folder = 'training/negatives/'
+    song_name = filename + '/' + folder + filename + '-' + song_name + '.png'
+    # if not os.path.exists(filename + '/training'):
+    #     os.makedirs(filename + '/training/positives/')
+    #     os.mkdir(filename + '/training/negatives')
+    midrow = floor((max(line_dict['index values']) -  min(line_dict['index values'])) / 2)
+    top_row = row+ midrow+30
+    bot_row = row+ midrow-29
+    intro_array = array[bot_row:top_row, column:column+19].copy()
+
+    intro_array = (intro_array+80)*(255/80)
+    intro_image = im.fromarray(intro_array)
+    intro_image = intro_image.convert('RGB')
+    intro_image.save(song_name)
 
 def save_images(song_album, filename):
     for i in range(len(song_album)):
@@ -213,7 +247,7 @@ def save_df(song_album, dfname):
 
 #makes the first pass df with both verified and unverified songs, sorted by intro note onset time
 def save_df_verified(song_album, dfname):
-    datadict = {'intro column': [], 'intro time': [], 'action': [], 'intro freq': [], 'status': [], 'intro length': [],'post size': [], 'soft locs': [], 'loud locs':[]}
+    datadict = {'intro column': [], 'intro time': [], 'action': [], 'intro freq': [], 'status': [], 'intro length': [], 'intro values': [], 'post size': [], 'soft locs': [], 'loud locs':[]}
 
     for entry in song_album:
         datadict['intro column'].append(entry['intro column'])
@@ -221,7 +255,8 @@ def save_df_verified(song_album, dfname):
         datadict['intro freq'].append(entry['intro freq'])
         datadict['status'].append(entry['status'])
         datadict['action'].append('')
-        datadict['intro length'].append(entry['intro length'])       
+        datadict['intro length'].append(entry['intro length'])
+        datadict['intro values'].append(entry['intro values'])
         datadict['soft locs'].append(''.join(','.join(map(str, entry['soft notes']))))
         datadict['loud locs'].append(''.join(','.join(map(str, entry['loud notes']))))
         datadict['post size'].append(len(entry['soft notes']) + len(entry['loud notes']))
@@ -301,11 +336,11 @@ def check_for_thread_strict(array, row, column, rows, columns, threshold, max_th
     start_row = row
     prev_value = array[row, column]
     line_values.append(prev_value)
-    if (row > (3*stop_length)) and (row < (rows - 3*stop_length)) and (column < columns - stop_length):
+    if (row > (2*stop_length)) and (row < (rows - 2*stop_length)) and (column < columns - stop_length):
         while (length < stop_length):
             next_value = -80
             new_row = 0
-            for i in [0, -1, 1, -2, 2, -3, 3]:
+            for i in [0, -1, 1, -2, 2]:
                 if (array[row + i, column + length] > next_value):
                     next_value = array[row + i, column + length]
                     new_row = row + i
@@ -319,16 +354,16 @@ def check_for_thread_strict(array, row, column, rows, columns, threshold, max_th
             else:
                 #end of the line, not max length, so check how it qualifies
                 if (length >= min_length) and (max(line_values) > max_threshold):
-                    return {'length': length, 'onset time': column, 'onset freq': start_row, 'max db': max(line_values), 'mean db': np.mean(line_values), 'mean freq': round(np.mean(line_freqs), 2), 'status': 'verified', 'max index': line_values.index(max(line_values)), 'index values': index_values}
+                    return {'length': length, 'onset time': column, 'onset freq': start_row, 'line values': line_values, 'max db': max(line_values), 'mean db': np.mean(line_values), 'mean freq': round(np.mean(line_freqs), 2), 'status': 'verified', 'max index': line_values.index(max(line_values)), 'index values': index_values}
                 elif (length >= min_length) and (max(line_values) > max_threshold - verification_buffer):
-                    return {'length': length, 'onset time': column, 'onset freq': start_row, 'max db': max(line_values), 'mean db': np.mean(line_values), 'mean freq': round(np.mean(line_freqs), 2), 'status': 'unverified', 'max index': line_values.index(max(line_values)), 'index values': index_values}
+                    return {'length': length, 'onset time': column, 'onset freq': start_row, 'line values': line_values, 'max db': max(line_values), 'mean db': np.mean(line_values), 'mean freq': round(np.mean(line_freqs), 2), 'status': 'unverified', 'max index': line_values.index(max(line_values)), 'index values': index_values}
                 else:
                     return {'length': 0}
         #while loop ended, so the line is max length. now check where its max value qualifies
         if max(line_values) > max_threshold:
-            return {'length': length, 'onset time': column, 'onset freq': start_row, 'max db': max(line_values), 'mean db': np.mean(line_values), 'mean freq': round(np.mean(line_freqs), 2), 'status': 'verified', 'max index': line_values.index(max(line_values)), 'index values': index_values}
+            return {'length': length, 'onset time': column, 'onset freq': start_row, 'line values': line_values, 'max db': max(line_values), 'mean db': np.mean(line_values), 'mean freq': round(np.mean(line_freqs), 2), 'status': 'verified', 'max index': line_values.index(max(line_values)), 'index values': index_values}
         elif max(line_values) > max_threshold - verification_buffer:
-            return {'length': length, 'onset time': column, 'onset freq': start_row, 'max db': max(line_values), 'mean db': np.mean(line_values), 'mean freq': round(np.mean(line_freqs), 2), 'status': 'unverified', 'max index': line_values.index(max(line_values)), 'index values': index_values}
+            return {'length': length, 'onset time': column, 'onset freq': start_row, 'line values': line_values, 'max db': max(line_values), 'mean db': np.mean(line_values), 'mean freq': round(np.mean(line_freqs), 2), 'status': 'unverified', 'max index': line_values.index(max(line_values)), 'index values': index_values}
         else:
             return {'length': 0}
     else:
@@ -382,52 +417,23 @@ def check_for_posts(array, post_thresh:float, post_onset:float, column:int, colu
         k += 1
     all_notes = soft_notes + loud_notes
     if len(all_notes) < 4:
-        print(f'not enough post notes at {column * 0.023} seconds')
         return False
     if len(soft_notes) < 1:
-        any_soft_notes = False
         soft_notes.append([0,0,0,0])
     if len(loud_notes) < 1:
-        any_loud_notes = False
         loud_notes.append([0,0,0,0])
-    #check if there are any post notes beginning in the first half (before 35) and after 15
     
-    if any_loud_notes:
-        for note in loud_notes:
-            if note[1] > 15 and note[1] < 35:
-                label = 'verified'
-                break
-        else:
-            label = 'unverified'
-    else:
-        label = 'unverified'
-    if label == 'unverified':
-        if any_soft_notes:
-            for note in soft_notes:
-                if note[1] > 15 and note[1] < 35:
-                    label = 'verified'
-                    break
-            else:
-                print(f'no loud notes or soft notes in the sweet spot: {start * 0.023219814} seconds')
-                return False        
-        else:
-            print(f'no loud notes in sweet spot and no soft notes at all: {start * 0.023219814} seconds')
-            return False
-    #check if the post notes span a larger vertical range than 150
-    soft_note_freqs = []
-    loud_note_freqs = []
-    if any_soft_notes:
-        soft_note_freqs = [x[0] for x in soft_notes]
-    if any_loud_notes:
-        loud_note_freqs = [x[0] for x in loud_notes]
-    all_note_freqs = soft_note_freqs + loud_note_freqs
-    lowest_note = min(all_note_freqs)
-    highest_note = max(all_note_freqs)
-    if (highest_note - lowest_note) < 100:
-        print(f'not enough spread in the post notes at {start * 0.023219814} seconds')
+    #check if there are at least two post notes after 15 and before 40 and that the highest one is at least 100 rows higher than the lowest one
+    middle_notes = [x for x in all_notes if (x[1] > 9 and x[1] < 36)]
+    if len(middle_notes) < 2:
         return False
-
-    return {'soft notes': soft_notes, 'loud notes': loud_notes}
+    else:
+        middle_note_freqs = [x[3] for x in middle_notes]
+        for first_note in middle_note_freqs:
+            for second_note in middle_note_freqs:
+                if abs(first_note - second_note) > 100 and abs(first_note - second_note) < 400:
+                    return {'soft notes': soft_notes, 'loud notes': loud_notes}
+    return False 
 
 def check_for_vertical_splash(array, row, column, rows, splash_range, mean_db, max_db, max_index, index_list):
     value_list = []
@@ -437,7 +443,7 @@ def check_for_vertical_splash(array, row, column, rows, splash_range, mean_db, m
     for i in range(splash_range_internal):
         value_list.append(array[index_list[max_index] + 10 + i][column + max_index])
     if np.mean(value_list) > (mean_db - splash_threshold):
-        print(f'at row: {index_list[max_index]}, column: {column + max_index} (max: {max_db}) upper splash over threshold ({mean_db - splash_threshold}) with {np.mean(value_list)}')
+        # print(f'at row: {index_list[max_index]}, column: {column + max_index} (max: {max_db}) upper splash over threshold ({mean_db - splash_threshold}) with {np.mean(value_list)}')
         return True
     value_list = []
     if index_list[max_index] - 10 - splash_range < 0:
@@ -445,9 +451,10 @@ def check_for_vertical_splash(array, row, column, rows, splash_range, mean_db, m
     for i in range(splash_range_internal):
         value_list.append(array[index_list[max_index] - 10 - i][column + max_index])
     if np.mean(value_list) > (mean_db - splash_threshold):
-        print(f'at row: {index_list[max_index]}, column: {column + max_index} (max: {max_db}) lower splash over threshold ({mean_db - splash_threshold}) with {np.mean(value_list)}')
+        # print(f'at row: {index_list[max_index]}, column: {column + max_index} (max: {max_db}) lower splash over threshold ({mean_db - splash_threshold}) with {np.mean(value_list)}')
         return True
-    print(f'at row: {index_list[max_index]}, column: {column + max_index} (max: {max_db}) splash did not break threshold ({mean_db - splash_threshold}) with {np.mean(value_list)}')
+    # print(f'at row: {index_list[max_index]}, column: {column + max_index} (max: {max_db}) splash did not break threshold ({mean_db - splash_threshold}) with {np.mean(value_list)}')
+    print(f'At row: {row}, time: {column * 0.023219814}, tripped the splash function')
     return False
 
 def check_for_three_vertical_splash(array, row, column, rows, splash_range, mean_db, max_db, index_list, intro_min_length):
@@ -473,15 +480,16 @@ def check_for_three_vertical_splash(array, row, column, rows, splash_range, mean
             score += 1
         
     if score > 1:
-        print(f'at row: {index_list[j]}, column: {column + j} (max: {max_db}) score: {score} was over 1. Threshold: ({mean_db - splash_threshold})')
+        # print(f'at row: {index_list[j]}, column: {column + j} (max: {max_db}) score: {score} was over 1. Threshold: ({mean_db - splash_threshold})')
         return True
     else:
-        print(f'at row: {index_list[j]}, column: {column + j} (max: {max_db}) score: {score} was under 2. Threshold: ({mean_db - splash_threshold})')
+        # print(f'at row: {index_list[j]}, column: {column + j} (max: {max_db}) score: {score} was under 2. Threshold: ({mean_db - splash_threshold})')
+        # print(f'At row: {row}, time: {column * 0.023219814}, tripped the splash function with score of {score}')
         return False
 
 #this is where song status is checked and songs are sliced and formatted into the album
 def add_song_to_album(array, row, rows, column, columns, post_notes, line_dict, vertical_splash):
-    if (len(post_notes['loud notes']) + len(post_notes['soft notes']) > 2) and (line_dict['status'] == 'verified') and (not vertical_splash): 
+    if (line_dict['status'] == 'verified') and not vertical_splash: 
         label = 'verified'
         # a song has been identified and is now added to an array
     else:
@@ -498,7 +506,7 @@ def add_song_to_album(array, row, rows, column, columns, post_notes, line_dict, 
         zero_array[:,:-col_diff] = new_array
         new_array = zero_array
     # store the song
-    return {"intro column": line_dict['onset time'], "intro time": round((line_dict['onset time']) * 0.023219814, 2), "intro freq": line_dict['onset freq'], "intro length":line_dict['length'], "array": new_array, "status": label, "soft notes": post_notes['soft notes'], "loud notes": post_notes['loud notes']}
+    return {"intro column": line_dict['onset time'], "intro time": round((line_dict['onset time']) * 0.023219814, 2), "intro freq": line_dict['onset freq'], "intro length":line_dict['length'], "intro values":line_dict['line values'], "array": new_array, "status": label, "soft notes": post_notes['soft notes'], "loud notes": post_notes['loud notes']}
 
                                 # FUNCTIONS FOR SAVING OR DISPLAYING SPECTROGRAMS
 
@@ -534,6 +542,7 @@ def save_spect_from_array(array, file_name, folder, length, song_title):
     ax.grid(True, linestyle='-.')
     fig.colorbar(img, ax=ax, format=f'%0.2f')
     fig.gca().set_yticks(range(0, 743-120, 25))
+    # fig.gca().set_yticks(range(0, 283-220, 25))
     fig.gca().set_ylabel("Row")
     fig.gca().set_xticks(range(0, length, floor(length/10)))
     directory = folder + '/' + file_name
@@ -545,7 +554,7 @@ def save_whole_spect(array, name):
     img = librosa.display.specshow(array, x_axis='time', y_axis=None, sr=22050, ax=ax)
     ax.set_title(str(array), fontsize=20)
     fig.colorbar(img, ax=ax, format=f'%0.2f')
-    fig.gca().set_yticks(range(0, 743-120, 50))
+    fig.gca().set_yticks(range(0, 743-120, 5))
     fig.gca().set_ylabel("Row")
     plt.savefig(name)
     plt.close()
@@ -566,88 +575,6 @@ def store_an_array(filename, start, duration):
         hf.create_dataset(str(duration) + 'seconds' + "_dataset", data=new_seg)
 
                             #FUNCTION FOR CATEGORIZING STs
-#deprecated, counts matches
-# def count_matches(album):
-#     match_dict = {}
-#     for target_song in album:
-#         print(f'TARGET SONG: {target_song}')
-#         target_name = str(target_song['intro freq']) + ';' + str(target_song['intro time'])
-#         match_dict[target_name] = {}
-#         for compare_song in album:
-#             compare_name = str(compare_song['intro freq']) + ';' + str(compare_song['intro time'])
-#             #figure out which one has the most lines and how many
-#             total_notes_1 = len(target_song['post locs'])
-#             total_notes_2 = len(compare_song['post locs'])
-#             max_songs = max(total_notes_1, total_notes_2)
-#             best_score = 0
-#             #this the list of frames to shift left or right to find the best matches
-#             for i in [-5, 0, 5]:
-#                 matches = 0
-#                 for target_note in target_song['post locs']:
-#                     for compare_note in compare_song['post locs']:
-#                         if (abs(target_note[0] - compare_note[0]) < 15) and (abs((target_note[1]+i) - compare_note[1]) < 9):
-#                             matches += 1
-#                 if matches > best_score:
-#                     best_score = matches                
-#             if (target_name == compare_name):
-#                 match_dict[target_name][compare_name] = 0
-#             else:
-#                 match_dict[target_name][compare_name] = round(best_score/max_songs, 2)
-#     print(match_dict)
-
-#     match_df = pd.DataFrame(match_dict)
-#     # for index, row in match_df.iterrows():
-#     #     match_list = match_df.loc[index].values.flatten().tolist()
-#     #     print(match_list)
-#     #     match_df.loc[index, 'MAX'] = max(match_list)
-#     print(match_df.shape)
-#     match_df.to_csv('match_df-' + filename + '.csv')
-
-# #deprecated
-# def new_count_matches(album):
-#     match_dict = {}
-#     for target_song in album:
-#         target_name = str(target_song['intro freq']) + ';' + str(target_song['intro time'])
-#         match_dict[target_name] = {}
-#         for compare_song in album:
-#             compare_name = str(compare_song['intro freq']) + ';' + str(compare_song['intro time'])
-#             #figure out which one has the most lines and how many
-#             smaller_song = []
-#             larger_song = []
-#             if len(target_song['post locs']) >= len(compare_song['post locs']):
-#                 larger_song_backup = target_song['post locs']
-#                 smaller_song = compare_song['post locs']
-#             else:
-#                 smaller_song = target_song['post locs']
-#                 larger_song_backup = compare_song['post locs']
-#             less_songs = len(smaller_song)
-#             best_score = 0
-#             # distance_sum = []
-#             #this the list of frames to shift left or right to find the best matches
-#             for i in [-5, 0, 5]:
-#                 larger_song = larger_song_backup.copy()
-#                 matches = 0
-#                 # distance_list = []
-#                 for target_note in smaller_song:
-#                     for compare_note in larger_song:
-#                         if (abs(target_note[0] - compare_note[0]) < 15) and (abs((target_note[1]+i) - compare_note[1]) < 10):
-#                             matches += 1
-#                             # larger_song.remove(compare_note)
-#                             # distance = (abs(target_note[0] - compare_note[0])) + (abs(target_note[1] + i - compare_note[1]) + (abs(target_note[2] - compare_note[2])))
-#                             # distance_list.append(distance)
-#                             break
-#                 if matches > best_score:
-#                     best_score = matches
-#                     # distance_sum = sum(distance_list)                
-#             if (target_name == compare_name):
-#                 match_dict[target_name][compare_name] = 0
-#             else:
-#                 match_dict[target_name][compare_name] = round(best_score/less_songs, 2) #distance_sum]
-#                 # print(distance_list)
-
-#     match_df = pd.DataFrame(match_dict)
-#     print(match_df.shape)
-#     match_df.to_csv('match_df-' + filename + '.csv')
 
 def count_both_matches(album):
     match_dict = {}
@@ -742,17 +669,18 @@ def count_both_matches(album):
 
 def count_both_matches_from_template(album):
     final_df = pd.read_csv('second_pass_df-' + filename + '.csv', index_col=False)
-    master_dict = load_df('template.csv')
-    for dict in master_dict:
+    template_dict = load_df('template.csv')
+    for dict in template_dict:
         dict['soft locs'] = dict['soft locs'][0]
         dict['loud locs'] = dict['loud locs'][0]
-    print(master_dict[0]['soft locs'])
-    print(album[0]['soft locs'][0])
     cat_list = []
+    best_match_times = []
+    best_scores = []
     for target_song in album:
         best_score = 0
         best_cat = 'Z'
-        for compare_song in master_dict:
+        best_time = 0
+        for compare_song in template_dict:
             #figure out which one has the most lines and how many
             smaller_softs = []
             smaller_louds = []
@@ -769,7 +697,7 @@ def count_both_matches_from_template(album):
                 smaller_louds_backup = target_song['loud locs']
                 larger_louds_backup = compare_song['loud locs']
             best_possible_score = (len(smaller_louds_backup) * 3) + len(smaller_softs_backup)
-            #this the list of frames to shift left or right to find the best matches
+            #this is the list of frames to shift left or right to find the best matches
             for i in [0]:
                 smaller_louds = smaller_louds_backup.copy()
                 larger_louds = larger_louds_backup.copy()
@@ -826,11 +754,117 @@ def count_both_matches_from_template(album):
                     # print(f'score: {score} for {compare_song}, best score: {best_score}')
                     best_score = score
                     best_cat = compare_song['ID']
+                    best_time = compare_song['intro time']
                     # print(f'changing to {best_cat}')              
+        cat_list.append(best_cat)
+        best_match_times.append(best_time)
+        best_scores.append(best_score)
+    final_df['ID'] = cat_list
+    final_df['best match times'] = best_match_times
+    final_df['best match score'] = best_scores
+    final_df.to_csv('master-' + filename + '.csv', index=False)
+
+def count_average_matches_from_template(album):
+    #load the datagrame of second_pass_df for easy manipulation to create final_df
+    final_df = pd.read_csv('second_pass_df-' + filename + '.csv', index_col=False)
+    template_dict = load_df('template.csv')
+    for dict in template_dict:
+        dict['soft locs'] = dict['soft locs'][0]
+        dict['loud locs'] = dict['loud locs'][0]
+    cat_list = []
+    category_template_dict = {}
+    letter_names = ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H','I','J','K','L','M','N','O','P','Q','R','S','T','U','V','W','X','Y','Z']
+    for letter in letter_names:
+        category_template_dict[letter] = []
+        for dicty in template_dict:
+            if dicty['ID'] == letter:
+                category_template_dict[letter].append(dicty)
+    for target_song in album:
+        best_score = 0
+        best_cat = 'Z'
+        for letter in letter_names:
+            score_list = []
+            for compare_song in category_template_dict[letter]:
+                if category_template_dict[letter]:
+                    #figure out which one has the most lines and how many
+                    smaller_softs = []
+                    smaller_louds = []
+                    larger_softs = []
+                    larger_louds = []
+                    if 3*len(target_song['loud locs']) + len(target_song['soft locs']) >= 3*len(compare_song['loud locs']) + len(compare_song['soft locs']):
+                        larger_softs_backup = target_song['soft locs']
+                        smaller_louds_backup = compare_song['loud locs']
+                        larger_louds_backup = target_song['loud locs']
+                        smaller_softs_backup = compare_song['soft locs']
+                    else:
+                        smaller_softs_backup = target_song['soft locs']
+                        larger_softs_backup = compare_song['soft locs']
+                        smaller_louds_backup = target_song['loud locs']
+                        larger_louds_backup = compare_song['loud locs']
+                    best_possible_score = (len(smaller_louds_backup) * 3) + len(smaller_softs_backup)
+                    #this is the list of frames to shift left or right to find the best matches
+                    for i in [0]:
+                        smaller_louds = smaller_louds_backup.copy()
+                        larger_louds = larger_louds_backup.copy()
+                        larger_softs = larger_softs_backup.copy()
+                        smaller_softs = smaller_softs_backup.copy()
+                        score = 0
+                        for target_note in smaller_louds:
+                            for compare_note in larger_louds:
+                                if (abs(target_note[3] - compare_note[3]) < 10) and (abs((target_note[1]+i) - compare_note[1]) < 6):
+                                    score += 3
+                                    break
+                                elif (abs(target_note[3] - compare_note[3]) < 20) and (abs((target_note[1]+i) - compare_note[1]) < 8):
+                                    score += 2.5
+                                    break
+                                elif (abs(target_note[3] - compare_note[3]) < 30) and (abs((target_note[1]+i) - compare_note[1]) < 10):
+                                    score += 2
+                                    break
+                            else:
+                                for compare_note in larger_softs:
+                                    if (abs(target_note[3] - compare_note[3]) < 10) and (abs((target_note[1]+i) - compare_note[1]) < 6):
+                                        score += 1
+                                        break
+                                    elif (abs(target_note[3] - compare_note[3]) < 20) and (abs((target_note[1]+i) - compare_note[1]) < 8):
+                                        score += .75
+                                        break
+                                    elif (abs(target_note[3] - compare_note[3]) < 30) and (abs((target_note[1]+i) - compare_note[1]) < 10):
+                                        score += .5
+                                        break
+                        for target_note in smaller_softs:
+                            for compare_note in larger_louds:
+                                if (abs(target_note[3] - compare_note[3]) < 10) and (abs((target_note[1]+i) - compare_note[1]) < 6):
+                                    score += 1
+                                    break
+                                elif (abs(target_note[3] - compare_note[3]) < 20) and (abs((target_note[1]+i) - compare_note[1]) < 8):
+                                    score += .75
+                                    break
+                                elif (abs(target_note[3] - compare_note[3]) < 30) and (abs((target_note[1]+i) - compare_note[1]) < 10):
+                                    score += .5
+                                    break
+                            else:
+                                for compare_note in larger_softs:
+                                    if (abs(target_note[3] - compare_note[3]) < 10) and (abs((target_note[1]+i) - compare_note[1]) < 6):
+                                        score += 1
+                                        break
+                                    elif (abs(target_note[3] - compare_note[3]) < 20) and (abs((target_note[1]+i) - compare_note[1]) < 8):
+                                        score += .75
+                                        break
+                                    elif (abs(target_note[3] - compare_note[3]) < 30) and (abs((target_note[1]+i) - compare_note[1]) < 10):
+                                        score += .5
+                                        break
+                        ind_score = round(score/best_possible_score - 0.01 * abs(target_song['post size'] - compare_song['post size']), 5)
+                        score_list.append(ind_score)
+            av_score = np.mean(score_list)
+            if av_score > best_score:
+                # print(f'best score is: {best_score}')
+                # print(f'score: {score} for {compare_song}, best score: {best_score}')
+                best_score = av_score
+                best_cat = letter
+                # print(f'changing to {best_cat}')              
         cat_list.append(best_cat)
     final_df['ID'] = cat_list
     final_df.to_csv('master-' + filename + '.csv', index=False)
-
 
 def sort_songs(dict):
     print('sorting songs...')
@@ -1005,13 +1039,18 @@ def create_song_album_from_df(dicty_list, filename: string):
                             post_notes = check_for_posts(data, post_threshold, post_onset, i, columns, rows, loud_post_threshold)
                             #cut the song out and add it to album
                             if post_notes:
-                                song_album.append(add_song_to_album(data, j, rows, i, columns, post_notes, line_dict))
+                                song_album.append(add_song_to_album(data, j, rows, i, columns, post_notes, line_dict, vertical_splash=False))
                                 print('added a new song to the song album!')
                                 i += 70
                                 break
                     j += 1            
                 i += 1
-            
+            song_name = str(dicty['intro time'])
+            song_name = song_name.replace('.', '-')
+            song_name = song_name + '.png'
+            if os.path.exists(filename + '/' + song_name):
+                os.remove(filename + '/' + song_name)
+
         if dicty['action'] == 'v':
             #move png up a folder and change its status
             song_name = str(dicty['intro time'])
@@ -1158,7 +1197,14 @@ def change_categories():
         data = hf[filename + '_dataset'][:]
     make_ST_album(data, master_df, 'STs-' + filename, 70)
 
-
+def change_categories_from_master():
+    with h5py.File(filename + '.h5', 'r') as hf:
+        data = hf[filename + '_dataset'][:]
+    master_df = pd.read_csv('master-' + filename + '.csv')
+    make_ST_album(data, master_df, 'STs-' + filename, 70)
+    # for index, row in master_df.iterrows():
+    #     if not os.path.exists(filename + '/' + row['ID'] + '-' + str(floor(row['intro time'])) + '.png'):
+    #         os.remove(filename + '/' + song_name)
                     # WORKFLOW FUNCTIONS
 
 def cut_wav_into_ten_minute_wavs():
@@ -1205,9 +1251,9 @@ def set_up():
 
 
     #CUT ARRAY INTO CHUNKS
-    with h5py.File(filename + '.h5', 'r') as hf:
-        data = hf[filename + '_dataset'][:]
-    cut_array_into_specs(data, filename+'_chunks', 20)
+    # with h5py.File(filename + '.h5', 'r') as hf:
+    #     data = hf[filename + '_dataset'][:]
+    # cut_array_into_specs(data, filename+'_chunks', 20)
 
 
 def check_the_numbers(start, duration):
@@ -1249,12 +1295,15 @@ def second_pass_with_template():
     with h5py.File(filename + '.h5', 'r') as hf:
         data = hf[filename + '_dataset'][:]
     make_ST_album(data, combo_df, 'STs-' + filename, 70)
-    ST_change_dict = {'current name': [], 'switch to': [], 'single time': [], 'switch single to': []}
-    ST_change_df = pd.DataFrame(ST_change_dict)
-    ST_change_df.to_csv('ST_change_file-' + filename + '.csv', index=False)
+    # ST_change_dict = {'current name': [], 'switch to': [], 'single time': [], 'switch single to': []}
+    # ST_change_df = pd.DataFrame(ST_change_dict)
+    # ST_change_df.to_csv('ST_change_file-' + filename + '.csv', index=False)
 
 def final_adjustments():
     change_categories()
+
+def final_adjustments_from_template():
+    change_categories_from_master()
 
     # CODE FOR FIGURING OUT THE FREQUENCIES OF EACH ROW
 # n_fft = 2048
@@ -1291,8 +1340,15 @@ def final_adjustments():
 # with h5py.File(filename + '.h5', 'r') as hf:
 #     data = hf[filename + '_dataset'][:]
 # print(np.shape(data))
-# data = make_segment(data, 433, 1)
+# data = make_segment(data, 402.8, 2)
 # display_spect(data)
+
+#    LOAD H5 TO NP ARRAY and SAVE A SEGMENT
+# set_up()
+# with h5py.File(filename + '.h5', 'r') as hf:
+#     data = hf[filename + '_dataset'][:]
+# data = make_segment(data, 44, 1)
+# save_whole_spect(data, 'noise')
 
     #TEST NEW FUNC ON ONE LITTLE SEGMENT
 # data = make_segment(data, 90.5, 2)
@@ -1313,6 +1369,7 @@ def final_adjustments():
 
 
 # seg = make_segment(data, 89, 5)
+# display_spect(seg)
 
     # SAVE DF TO CSV
 # df = pd.DataFrame(seg)
@@ -1364,16 +1421,16 @@ def load_variables():
 # EXECUTE CODE BELOW HERE FOR LATER RECORDINGS OF A BIRD
 #fourier transform, stores h5 file, creates 20sec spectrograms. Have a look at thresholds. takes ~51sec
 # set_up() 
-
+# slice_a_wav(344)
 
 # #creates df.csv and folder of prospective spectrograms. delete rows and make changes to intro column in df.csv before second pass. Takes ~1:51
 
-# first_pass_sample()
-# check_the_numbers(402.86, 0.6)
-first_pass()
+first_pass_sample()
+# check_the_numbers(148.19, 0.6)
+# first_pass()
 
 # #creates new folder of spectrograms and updates first_pass-.csv. Then it compares songs, assigns categories, creates images sorted by ST, and creates master sheet. Takes ~2min
 # second_pass_with_template()
 
 # #input any final ST changes such as "all Cs should be Bs". Creates new folder and new master sheet. Takes ~50sec
-# final_adjustments()
+# final_adjustments_from_template()
