@@ -1091,14 +1091,23 @@ def create_song_album_from_df(dicty_list, filename: string):
             if os.path.exists(directory + filename + '/training_songs/negatives/' + start_time + '-' + filename + '.png'):
                 os.rename(directory + filename + '/training_songs/negatives/' + start_time + '-' + filename + '.png', directory + filename + '/training_songs/positives/' + start_time + '-' + filename + '.png')
         if dicty['action'] == 'd':
-            #delete the png and change status to unverified so it will be deleted below
+            #delete the png
             song_name = '{:.2f}'.format(dicty['intro time'])
             song_name = song_name.replace('.', '-')
             song_name = song_name + '.png'
             if os.path.exists(directory + filename + '/' + song_name):
                 os.remove(directory + filename + '/' + song_name)
+            #if unverified, remove from pngs. This is to get false negatives out of the training negatives folder
+            if dicty['status'] == 'unverified':
+                if os.path.exists(directory + filename + '/training_intros/negatives/' + start_time + '-intro-' + filename + '.png'):
+                    os.remove(directory + filename + '/training_intros/negatives/' + start_time + '-intro-' + filename + '.png')
+                if os.path.exists(directory + filename + '/training_songs/negatives/' + start_time + '-' + filename + '.png'):
+                    os.remove(directory + filename + '/training_songs/negatives/' + start_time + '-' + filename + '.png')
+            
+            #change status to unverified so it will be deleted below from verified folder
             dicty['status'] = 'unverified'
-
+            
+            #move a false positive from the positives to the negatives folders for both intro notes and songs
             if os.path.exists(directory + filename + '/training_intros/positives/' + start_time + '-intro-' + filename + '.png'):
                 os.rename(directory + filename + '/training_intros/positives/' + start_time + '-intro-' + filename + '.png', directory + filename + '/training_songs/negatives/' + start_time + '-' + filename + '.png')
             if os.path.exists(directory + filename + '/training_songs/positives/' + start_time + '-' + filename + '.png'):
