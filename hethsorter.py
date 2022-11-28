@@ -30,7 +30,7 @@ color_cycle = cycle(plt.rcParams["axes.prop_cycle"].by_key()["color"])
     # VARIABLES
 recording_name = 'HERMIT4_20220504_065328-s'
 directory = recording_name + '/'
-filename = 'HERMIT4_20220504_065328-s-0m-10m-220s-end-slice'
+filename = 'HERMIT4_20220504_065328-s-10m-20m'
 
 intro_max = -35
 verification_buffer = 10 #lines with an intro max that is this many dbs below intro_max will be in unverified
@@ -115,6 +115,8 @@ def h5_to_album(filename, sample):
                             if not (vertical_splash and line_dict['status'] == 'unverified'):
                                 if check_higher_intros:
                                     pop_song = song_album.pop()
+                                    delete_intro_png(last_line_dict)
+                                    delete_song_png(last_line_dict)
                                     print(f'popping song at {pop_song["intro time"]}')
                             #cut the song out and add it to album
                                 if line_dict['status'] == 'unverified':
@@ -130,6 +132,7 @@ def h5_to_album(filename, sample):
                                     break
                                 else:
                                     check_higher_intros = True
+                                    last_line_dict = line_dict.copy()
                             else:
                                 print(f'row: {j}, time: {i * 0.023219814}, unverified by vertical splash and too soft of an intro note')
                         else:
@@ -167,6 +170,21 @@ def save_intro_png(array, row, column, line_dict, vertical_splash):
     intro_image = im.fromarray(intro_array)
     intro_image = intro_image.convert('RGB')
     intro_image.save(song_name)
+
+def delete_intro_png(line_dict):
+    start_string = '{:.2f}'.format((round((line_dict['onset time']) * 0.023219814, 2)))
+    start_time = start_string.replace('.', '-')
+    folder = 'training_intros/negatives/'
+    song_name = directory + filename + '/' + folder + start_time + '-intro-' + filename + '.png'
+    os.remove(song_name)
+
+def delete_song_png(line_dict):
+    start_string = '{:.2f}'.format((round((line_dict['onset time']) * 0.023219814, 2)))
+    start_time = start_string.replace('.', '-')
+    folder = 'training_songs/negatives/'
+    song_name = directory + filename + '/' + folder + start_time + '-' + filename + '.png'
+    os.remove(song_name)
+
 
 #saves pngs for the whole song. Note: they are upside down do to row numbering on spectrograms start bottom left and on images start top left
 def save_song_png(array, row, column, line_dict, vertical_splash):
@@ -1042,6 +1060,8 @@ def create_song_album_from_df(dicty_list, filename: string):
     # os.mkdir(filename)
     rows = len(data)
     for dicty in dicty_list:
+        start_string = '{:.2f}'.format(dicty['intro time'])
+        start_time = start_string.replace('.', '-')
         if dicty['action'] == 'a':
             dicty['status'] = 'unverified'
             columns = len(data[0])
@@ -1069,6 +1089,10 @@ def create_song_album_from_df(dicty_list, filename: string):
             song_name = song_name + '.png'
             if os.path.exists(directory + filename + '/' + song_name):
                 os.remove(directory + filename + '/' + song_name)
+            if os.path.exists(directory + filename + '/training_intros/positives/' + start_time + '-intro-' + filename + '.png'):
+                os.remove(directory + filename + '/training_intros/positives/' + start_time + '-intro-' + filename + '.png')
+            if os.path.exists(directory + filename + '/training_songs/positives/' + start_time + '-' + filename + '.png'):
+                os.remove(directory + filename + '/training_songs/positives/' + start_time + '-' + filename + '.png')
 
         if dicty['action'] == 'v':
             #move png up a folder and change its status
@@ -1076,42 +1100,54 @@ def create_song_album_from_df(dicty_list, filename: string):
             song_name = song_name.replace('.', '-')
             song_name = song_name + '.png'
             if os.path.exists(directory + filename + '/unverified/' + song_name):
-                os.rename(directory + filename + '/unverified/' + song_name, filename + '/' + song_name)
+                os.rename(directory + filename + '/unverified/' + song_name, directory + filename + '/' + song_name)
             dicty['status'] = 'verified'
 
-            start_string = '{:.2f}'.format(dicty['intro time'])
-            start_time = start_string.replace('.', '-')
+
 #           if line_dict['status'] == 'verified' and not vertical_splash:
 #               folder = 'training_intros/positives/'
 #           else:
 #               folder = 'training_intros/negatives/'
 #           song_name = filename + '/' + folder + start_time + '-intro-' + filename + '.png'
             if os.path.exists(directory + filename + '/training_intros/negatives/' + start_time + '-intro-' + filename + '.png'):
-                os.rename(directory + filename + '/training_intros/negatives/' + start_time + '-intro-' + filename + '.png', directory + filename + '/training_songs/positives/' + start_time + '-' + filename + '.png')
+                os.rename(directory + filename + '/training_intros/negatives/' + start_time + '-intro-' + filename + '.png', directory + filename + '/training_intros/positives/' + start_time + '-intro-' + filename + '.png')
             if os.path.exists(directory + filename + '/training_songs/negatives/' + start_time + '-' + filename + '.png'):
                 os.rename(directory + filename + '/training_songs/negatives/' + start_time + '-' + filename + '.png', directory + filename + '/training_songs/positives/' + start_time + '-' + filename + '.png')
-        if dicty['action'] == 'd':
+
+        if dicty['action'] == 'd' or dicty['action'] == 'ds' or dicty['action'] == 'da':
             #delete the png
             song_name = '{:.2f}'.format(dicty['intro time'])
             song_name = song_name.replace('.', '-')
             song_name = song_name + '.png'
             if os.path.exists(directory + filename + '/' + song_name):
                 os.remove(directory + filename + '/' + song_name)
-            #if unverified, remove from pngs. This is to get false negatives out of the training negatives folder
+            #if unverified, remove from pngs. This is to get false negatives out of the training negatives folder if they were basically positive but a slightly shifted version is already in the verified folder.
             if dicty['status'] == 'unverified':
                 if os.path.exists(directory + filename + '/training_intros/negatives/' + start_time + '-intro-' + filename + '.png'):
-                    os.remove(directory + filename + '/training_intros/negatives/' + start_time + '-intro-' + filename + '.png')
-                if os.path.exists(directory + filename + '/training_songs/negatives/' + start_time + '-' + filename + '.png'):
-                    os.remove(directory + filename + '/training_songs/negatives/' + start_time + '-' + filename + '.png')
-            
+                        os.remove(directory + filename + '/training_intros/negatives/' + start_time + '-intro-' + filename + '.png')
+                if dicty['action'] == 'd' or dicty['action'] == 'da':
+                    if os.path.exists(directory + filename + '/training_songs/negatives/' + start_time + '-' + filename + '.png'):
+                        os.remove(directory + filename + '/training_songs/negatives/' + start_time + '-' + filename + '.png')
+                    if os.path.exists(directory + filename + '/unverified/' + song_name):
+                        os.remove(directory + filename + '/unverified/' + song_name)
+               
             #change status to unverified so it will be deleted below from verified folder
             dicty['status'] = 'unverified'
-            
-            #move a false positive from the positives to the negatives folders for both intro notes and songs
+
+            #move song and intro notes between positive and negative training folders depending on d, ds, and da.
+            #d means move both from pos to neg. ds means move the song from pos to neg, but then delete the intro. da means delete both from training folders (usually a slightly late version of a real song...not strictly positive, but also not what we're trying to weed out).
             if os.path.exists(directory + filename + '/training_intros/positives/' + start_time + '-intro-' + filename + '.png'):
-                os.rename(directory + filename + '/training_intros/positives/' + start_time + '-intro-' + filename + '.png', directory + filename + '/training_songs/negatives/' + start_time + '-' + filename + '.png')
+                if dicty['action'] == 'd':
+                    os.rename(directory + filename + '/training_intros/positives/' + start_time + '-intro-' + filename + '.png', directory + filename + '/training_intros/negatives/' + start_time + '-intro-' + filename + '.png')
+                else:
+                    os.remove(directory + filename + '/training_intros/positives/' + start_time + '-intro-' + filename + '.png')
+
             if os.path.exists(directory + filename + '/training_songs/positives/' + start_time + '-' + filename + '.png'):
-                os.rename(directory + filename + '/training_songs/positives/' + start_time + '-' + filename + '.png', directory + filename + '/training_songs/negatives/' + start_time + '-' + filename + '.png')
+                if dicty['action'] == 'da':
+                    os.remove(directory + filename + '/training_songs/positives/' + start_time + '-' + filename + '.png')
+                else:
+                    os.rename(directory + filename + '/training_songs/positives/' + start_time + '-' + filename + '.png', directory + filename + '/training_songs/negatives/' + start_time + '-' + filename + '.png')
+
     #save a bunch of spectrograms
     for song in song_album:
         if song['status'] == 'unverified':
@@ -1134,7 +1170,7 @@ def create_song_album_from_df(dicty_list, filename: string):
     datadict = {'intro column': [], 'intro time': [], 'intro freq': [], 'status': [], 'intro length': [],'post size': [], 'soft locs': [], 'loud locs':[]}
     for entry in song_album:
         datadict['intro column'].append(entry['intro column'])
-        datadict['intro time'].append(entry['intro time'])
+        datadict['intro time'].append(float(entry['intro time']))
         datadict['intro freq'].append(entry['intro freq'])
         datadict['status'].append(entry['status'])
         datadict['intro length'].append(entry['intro length'])       
@@ -1150,7 +1186,7 @@ def create_song_album_from_df(dicty_list, filename: string):
     #merge the two here
     print(f'after dropping: {df_all_rows}')
     df_all_rows = df_all_rows.sort_values(by=['intro time'])
-    df_all_rows.to_csv('second_pass_df-' + filename + '.csv', index=False)
+    df_all_rows.to_csv(directory + 'second_pass_df-' + filename + '.csv', index=False)
 
 def load_df(filename:string):
     df = pd.read_csv(filename)
@@ -1322,10 +1358,10 @@ def first_pass_sample():
 
 def second_pass():
     dicty_list = load_df(directory + 'first_pass_df-' + filename + '.csv')
-    create_song_album_from_df(dicty_list, directory + filename)
+    create_song_album_from_df(dicty_list, filename)
 
-    dicty_list = load_df(directory + 'second_pass_df-' + filename + '.csv')
-    count_both_matches(dicty_list)
+    # dicty_list = load_df(directory + 'second_pass_df-' + filename + '.csv')
+    # count_both_matches(dicty_list)
 
 def categorize():
     match_dicty = load_match_df(directory + 'match_df-' + filename + '.csv')
@@ -1336,7 +1372,7 @@ def categorize():
 
 def second_pass_with_template():
     dicty_list = load_df(directory + 'first_pass_df-' + filename + '.csv')
-    create_song_album_from_df(dicty_list, directory + filename)
+    create_song_album_from_df(dicty_list, filename)
 
     dicty_list = load_df(directory + 'second_pass_df-' + filename + '.csv')
     count_both_matches_from_template(dicty_list)
@@ -1451,10 +1487,10 @@ def load_variables():
 # first_pass_sample() # this grabs a little sample of the data to inspect
 # #creates df.csv and folder of prospective spectrograms. delete rows and make changes to intro column in df.csv before second pass. Takes ~2min
 
-first_pass()
+# first_pass()
 
 # #creates new folder of spectrograms and new_df.csv. Then it compares songs, assigns categories, creates images sorted by ST, and creates master sheet. Takes ~2.5min
-# second_pass() 
+second_pass() 
 
 # categorize()
 
