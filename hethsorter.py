@@ -86,6 +86,10 @@ def h5_to_album(filename, sample):
     os.mkdir(directory + filename + '/training_intros/negatives')
     os.makedirs(directory + filename + '/training_songs/positives/')
     os.mkdir(directory + filename + '/training_songs/negatives')
+    os.mkdir(directory + filename + '/errors/training_songs/negatives')
+    os.mkdir(directory + filename + '/errors/training_songs/positives')
+    os.mkdir(directory + filename + '/errors/training_intros/negatives')
+    os.mkdir(directory + filename + '/errors/training_intros/positives')
     song_album = []
     #start iterating through the whole recording
     i = 0
@@ -1087,12 +1091,16 @@ def create_song_album_from_df(dicty_list, filename: string):
             song_name = '{:.2f}'.format(dicty['intro time'])
             song_name = song_name.replace('.', '-')
             song_name = song_name + '.png'
+            
+            
             if os.path.exists(directory + filename + '/' + song_name):
                 os.remove(directory + filename + '/' + song_name)
             if os.path.exists(directory + filename + '/training_intros/positives/' + start_time + '-intro-' + filename + '.png'):
-                os.remove(directory + filename + '/training_intros/positives/' + start_time + '-intro-' + filename + '.png')
+                shutil.copy(directory + filename + '/training_intros/positives/' + start_time + '-intro-' + filename + '.png', directory + filename + '/errors/training_intros/negatives/' + start_time + '-intro-' + filename + '.png')
+                os.rename(directory + filename + '/training_intros/positives/' + start_time + '-intro-' + filename + '.png', directory + filename + '/training_intros/negatives/' + start_time + '-intro-' + filename + '.png')
             if os.path.exists(directory + filename + '/training_songs/positives/' + start_time + '-' + filename + '.png'):
-                os.remove(directory + filename + '/training_songs/positives/' + start_time + '-' + filename + '.png')
+                shutil.copy(directory + filename + '/training_songs/positives/' + start_time + '-' + filename + '.png', directory + filename + '/errors/training_songs/negatives/' + start_time + '-' + filename + '.png')
+                os.rename(directory + filename + '/training_songs/positives/' + start_time + '-' + filename + '.png', directory + filename + '/training_songs/negatives/' + start_time + '-' + filename + '.png')
 
         if dicty['action'] == 'v':
             #move png up a folder and change its status
@@ -1110,8 +1118,10 @@ def create_song_album_from_df(dicty_list, filename: string):
 #               folder = 'training_intros/negatives/'
 #           song_name = filename + '/' + folder + start_time + '-intro-' + filename + '.png'
             if os.path.exists(directory + filename + '/training_intros/negatives/' + start_time + '-intro-' + filename + '.png'):
+                shutil.copy(directory + filename + '/training_intros/negatives/' + start_time + '-intro-' + filename + '.png', directory + filename + '/errors/training_intros/positives/' + start_time + '-intro-' + filename + '.png')
                 os.rename(directory + filename + '/training_intros/negatives/' + start_time + '-intro-' + filename + '.png', directory + filename + '/training_intros/positives/' + start_time + '-intro-' + filename + '.png')
             if os.path.exists(directory + filename + '/training_songs/negatives/' + start_time + '-' + filename + '.png'):
+                shutil.copy(directory + filename + '/training_songs/negatives/' + start_time + '-' + filename + '.png', directory + filename + '/errors/training_songs/positives/' + start_time + '-' + filename + '.png')
                 os.rename(directory + filename + '/training_songs/negatives/' + start_time + '-' + filename + '.png', directory + filename + '/training_songs/positives/' + start_time + '-' + filename + '.png')
 
         if dicty['action'] == 'd' or dicty['action'] == 'ds' or dicty['action'] == 'da':
@@ -1138,6 +1148,7 @@ def create_song_album_from_df(dicty_list, filename: string):
             #d means move both from pos to neg. ds means move the song from pos to neg, but then delete the intro. da means delete both from training folders (usually a slightly late version of a real song...not strictly positive, but also not what we're trying to weed out).
             if os.path.exists(directory + filename + '/training_intros/positives/' + start_time + '-intro-' + filename + '.png'):
                 if dicty['action'] == 'd':
+                    shutil.copy(directory + filename + '/training_intros/positives/' + start_time + '-intro-' + filename + '.png', directory + filename + '/errors/training_intros/negatives/' + start_time + '-intro-' + filename + '.png')
                     os.rename(directory + filename + '/training_intros/positives/' + start_time + '-intro-' + filename + '.png', directory + filename + '/training_intros/negatives/' + start_time + '-intro-' + filename + '.png')
                 else:
                     os.remove(directory + filename + '/training_intros/positives/' + start_time + '-intro-' + filename + '.png')
@@ -1146,6 +1157,7 @@ def create_song_album_from_df(dicty_list, filename: string):
                 if dicty['action'] == 'da':
                     os.remove(directory + filename + '/training_songs/positives/' + start_time + '-' + filename + '.png')
                 else:
+                    shutil.copy(directory + filename + '/training_songs/positives/' + start_time + '-' + filename + '.png', directory + filename + '/errors/training_songs/negatives/' + start_time + '-' + filename + '.png')
                     os.rename(directory + filename + '/training_songs/positives/' + start_time + '-' + filename + '.png', directory + filename + '/training_songs/negatives/' + start_time + '-' + filename + '.png')
 
     #save a bunch of spectrograms
