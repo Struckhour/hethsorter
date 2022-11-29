@@ -28,14 +28,14 @@ color_cycle = cycle(plt.rcParams["axes.prop_cycle"].by_key()["color"])
 
 
     # VARIABLES
-recording_name = 'HERMIT4_20220504_065328-s'
+recording_name = 'HERMIT1_20220529_044600-s'
 directory = recording_name + '/'
-filename = 'HERMIT4_20220504_065328-s-10m-20m'
+filename = 'HERMIT1_20220529_044600-s-10m-20m'
 
 intro_max = -35
-verification_buffer = 10 #lines with an intro max that is this many dbs below intro_max will be in unverified
-intro_onset = intro_max - 15
-intro_threshold = intro_max - 15
+verification_buffer = 15 #lines with an intro max that is this many dbs below intro_max will be in unverified: 10 seems good
+intro_onset = intro_max - 5
+intro_threshold = intro_max - 10
 intro_min_length = 8
 intro_max_length = 17
 intro_jumps = 1
@@ -43,7 +43,7 @@ diff_threshold = 25 #this is how far one value on a thread can jump up or down t
 splash_threshold = 20 #how far below the average intro note value does the outer cloud need to be? If the cloud is above this, it trips the splash function
 
 
-post_max = intro_max - 5
+post_max = intro_max - 10
 post_onset = post_max - 10
 post_threshold = post_max - 10
 post_min_length = 5
@@ -86,9 +86,9 @@ def h5_to_album(filename, sample):
     os.mkdir(directory + filename + '/training_intros/negatives')
     os.makedirs(directory + filename + '/training_songs/positives/')
     os.mkdir(directory + filename + '/training_songs/negatives')
-    os.mkdir(directory + filename + '/errors/training_songs/negatives')
+    os.makedirs(directory + filename + '/errors/training_songs/negatives')
     os.mkdir(directory + filename + '/errors/training_songs/positives')
-    os.mkdir(directory + filename + '/errors/training_intros/negatives')
+    os.makedirs(directory + filename + '/errors/training_intros/negatives')
     os.mkdir(directory + filename + '/errors/training_intros/positives')
     song_album = []
     #start iterating through the whole recording
@@ -1494,15 +1494,15 @@ def load_variables():
 #fourier transform, stores h5 file, creates 20sec spectrograms. Have a look at thresholds. Takes ~40sec
 # cut_wav_into_ten_minute_wavs()
 # set_up() 
-# slice_a_wav(220)
+# slice_a_wav(420)
 
 # first_pass_sample() # this grabs a little sample of the data to inspect
 # #creates df.csv and folder of prospective spectrograms. delete rows and make changes to intro column in df.csv before second pass. Takes ~2min
 
-# first_pass()
+first_pass()
 
 # #creates new folder of spectrograms and new_df.csv. Then it compares songs, assigns categories, creates images sorted by ST, and creates master sheet. Takes ~2.5min
-second_pass() 
+# second_pass() 
 
 # categorize()
 
