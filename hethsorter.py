@@ -18,7 +18,9 @@ import shutil
 from pydub import AudioSegment
 import statistics
 from PIL import Image as im
-
+import cv2
+import tensorflow as tf
+import random
 
 from itertools import cycle
 
@@ -30,10 +32,10 @@ color_cycle = cycle(plt.rcParams["axes.prop_cycle"].by_key()["color"])
     # VARIABLES
 recording_name = 'HERMIT1_20220529_044600-s'
 directory = recording_name + '/'
-filename = 'HERMIT1_20220529_044600-s-10m-20m'
+filename = 'HERMIT1_20220529_044600-s-50m-end'
 
-intro_max = -35
-verification_buffer = 15 #lines with an intro max that is this many dbs below intro_max will be in unverified: 10 seems good
+intro_max = -30
+verification_buffer = 10 #lines with an intro max that is this many dbs below intro_max will be in unverified: 10 seems good
 intro_onset = intro_max - 5
 intro_threshold = intro_max - 10
 intro_min_length = 8
@@ -43,7 +45,7 @@ diff_threshold = 25 #this is how far one value on a thread can jump up or down t
 splash_threshold = 20 #how far below the average intro note value does the outer cloud need to be? If the cloud is above this, it trips the splash function
 
 
-post_max = intro_max - 10
+post_max = intro_max - 5
 post_onset = post_max - 10
 post_threshold = post_max - 10
 post_min_length = 5
@@ -155,6 +157,102 @@ def h5_to_album(filename, sample):
     print('saving csv...')
     save_df_verified(song_album, directory + 'first_pass_df-' + filename)
 
+
+def h5_to_album_with_models(filename, sample):
+    with h5py.File(directory + filename + '.h5', 'r') as hf:
+        data = hf[filename + '_dataset'][:]
+    print(np.shape(data))
+
+    intro_model, song_model = load_models()
+
+    #create folders for song pngs, add a nested folder for unverified pngs
+    if os.path.exists(directory + filename):
+        shutil.rmtree(directory + filename)
+    os.mkdir(directory + filename)
+    # if os.path.exists(directory + filename + '/unverified'):
+    #     shutil.rmtree(directory + filename + '/unverified')
+    os.mkdir(directory + filename + '/unverified')
+    os.makedirs(directory + filename + '/training_intros/positives/')
+    os.mkdir(directory + filename + '/training_intros/negatives')
+    os.makedirs(directory + filename + '/training_songs/positives/')
+    os.mkdir(directory + filename + '/training_songs/negatives')
+    os.makedirs(directory + filename + '/errors/training_songs/negatives')
+    os.mkdir(directory + filename + '/errors/training_songs/positives')
+    os.makedirs(directory + filename + '/errors/training_intros/negatives')
+    os.mkdir(directory + filename + '/errors/training_intros/positives')
+    song_album = []
+    #start iterating through the whole recording
+    i = 0
+    rows = len(data)
+    #if this is a sample, it only goes to 2000 columns ~46 seconds. if not, it does the whole recording.
+    if sample:
+        i = 0
+        columns = 1000
+    else:
+        columns = len(data[0])
+    print(rows)
+    print(columns)
+    while i < (columns):
+        j = 0
+        check_higher_intros = False
+        while j < 450: #this is 450 because there aren't intro songs above 450...usually????
+            # print(array[j][i])
+            if i >= columns:
+                break
+            if (data[j][i] > intro_onset):
+                line_dict = check_for_thread_strict(data, j, i, rows, columns, intro_threshold, intro_max, intro_min_length, intro_max_length)
+                if line_dict['length'] > intro_min_length:
+                    vertical_splash = check_for_three_vertical_splash(data, j, i, rows, 30, line_dict['mean db'], line_dict['max db'], line_dict['index values'], intro_min_length)
+                    intro_prediction = intro_predict(data, j, i, line_dict, intro_model)
+                    if (not check_higher_intros) or (check_higher_intros and not vertical_splash and (line_dict['status'] == 'verified') and intro_prediction):
+                        if (not (vertical_splash and line_dict['status'] == 'unverified')) or intro_prediction:
+                            song_prediction = song_predict(data, i, song_model)
+                            if song_prediction:
+                                post_notes = check_for_posts(data, post_threshold, post_onset, i, columns, rows, loud_post_threshold)
+                                if post_notes:
+                                    if check_higher_intros:
+                                        pop_song = song_album.pop()
+                                        delete_intro_png(last_line_dict)
+                                        delete_song_png(last_line_dict)
+                                        print(f'popping song at {pop_song["intro time"]}')
+                                #cut the song out and add it to album
+                                    if line_dict['status'] == 'unverified':
+                                        print(f'row: {j}, time: {i * 0.023219814}, intro note not loud enough')
+                                    if vertical_splash:
+                                        print(f'row: {j}, time: {i * 0.023219814}, unverified by the splash function')
+                                    song_album.append(add_song_to_album(data, j, rows, i, columns, post_notes, line_dict, vertical_splash))
+                                    save_intro_png(data, j, i, line_dict, vertical_splash)
+                                    save_song_png(data, j, i, line_dict, vertical_splash)
+                                # since it has the right post_notes and a good intro note, skip the width of a song and continue on
+                                    if song_album[-1]['status'] == 'verified':
+                                        i += 70
+                                        break
+                                    else:
+                                        check_higher_intros = True
+                                        last_line_dict = line_dict.copy()
+                                else:
+                                    print(f'row: {j}, time: {i * 0.023219814}, did not pass post note tests')
+                                    i += 1
+                                    break
+                            else:
+                                print(f'row: {j}, time: {i * 0.023219814}, did not pass song prediction')
+                                i += 1
+                                break
+                        else:
+                            print(f'row: {j}, time: {i * 0.023219814}, unverified by vertical splash and too soft of an intro note OR did not pass intro prediction')
+
+            j += 5
+        if check_higher_intros:            
+            i += 3
+        else:
+            i += 2
+    #save a bunch of spectrograms
+    print('saving spectrograms...')
+    save_images(song_album, filename)
+    #save the album as a dataframe and then csv
+    print('saving csv...')
+    save_df_verified(song_album, directory + 'first_pass_df-' + filename)
+
 #saves pngs for the intro notes and sorts them into verified and unverified
 def save_intro_png(array, row, column, line_dict, vertical_splash):
     start_string = '{:.2f}'.format((round((line_dict['onset time']) * 0.023219814, 2)))
@@ -165,9 +263,9 @@ def save_intro_png(array, row, column, line_dict, vertical_splash):
         folder = 'training_intros/negatives/'
     song_name = directory + filename + '/' + folder + start_time + '-intro-' + filename + '.png'
 
-    midrow = floor((max(line_dict['index values']) -  min(line_dict['index values'])) / 2)
-    top_row = row+ midrow+30
-    bot_row = row+ midrow-29
+    midrow = max(line_dict['index values']) - (floor((max(line_dict['index values']) -  min(line_dict['index values'])) / 2))
+    top_row = midrow+30
+    bot_row = midrow-29
     intro_array = array[bot_row:top_row, column:column+19].copy()
 
     intro_array = (intro_array+80)*(255/80)
@@ -205,6 +303,42 @@ def save_song_png(array, row, column, line_dict, vertical_splash):
     intro_image = im.fromarray(intro_array)
     intro_image = intro_image.convert('RGB')
     intro_image.save(song_name)
+
+def load_models():
+    intro_model = tf.keras.models.load_model('test-intros-model.model')
+    song_model = tf.keras.models.load_model('test-song-model-2.model')
+    return intro_model, song_model
+
+def intro_predict(array, row, column, line_dict, model):
+    midrow = max(line_dict['index values']) - (floor((max(line_dict['index values']) -  min(line_dict['index values'])) / 2))
+    top_row = midrow+30
+    bot_row = midrow-29
+    intro_array = array[bot_row:top_row, column:column+19].copy()
+    intro_array = (intro_array+80)*(255/80)
+    intro_array = intro_array.reshape(-1, 59, 19, 1)
+    prediction = model.predict([intro_array])
+    print(f'intro prediction: {prediction[0][0]}')
+    if round(prediction[0][0]) == 1:
+        return True
+    else:
+        return False
+
+def song_predict(array, column, model):
+    song_array = array[:, column:column+69].copy()
+    song_array = (song_array+80)*(255/80)
+    song_array = song_array.reshape(-1, 623, 69, 1)
+    prediction = model.predict([song_array])
+    print(f'song prediction: {prediction[0][0]}')
+    if round(prediction[0][0]) == 1:
+        return True
+    else:
+        return False
+
+# with h5py.File(directory + filename + '.h5', 'r') as hf:
+#     data = hf[filename + '_dataset'][:]
+# intro_model, song_model = load_models()
+# song_predict(data, 3300, song_model)
+# intro_predict(data, 130, 3300, {'index values': [-4, 3, 12]}, intro_model)
 
 def save_images(song_album, filename):
     for i in range(len(song_album)):
@@ -1363,10 +1497,10 @@ def check_the_numbers(start, duration):
 #STORE THE WAV AS AN H5 FILE. BE AWARE, FOURIER SLICES OFF THE BOTTOM AND TOP
 
 def first_pass():
-    h5_to_album(filename, False)
+    h5_to_album_with_models(filename, False)
 
 def first_pass_sample():
-    h5_to_album(filename, True)
+    h5_to_album_with_models(filename, True)
 
 def second_pass():
     dicty_list = load_df(directory + 'first_pass_df-' + filename + '.csv')
@@ -1496,10 +1630,10 @@ def load_variables():
 # set_up() 
 # slice_a_wav(420)
 
-# first_pass_sample() # this grabs a little sample of the data to inspect
+first_pass_sample() # this grabs a little sample of the data to inspect
 # #creates df.csv and folder of prospective spectrograms. delete rows and make changes to intro column in df.csv before second pass. Takes ~2min
 
-first_pass()
+# first_pass()
 
 # #creates new folder of spectrograms and new_df.csv. Then it compares songs, assigns categories, creates images sorted by ST, and creates master sheet. Takes ~2.5min
 # second_pass() 
