@@ -309,6 +309,59 @@ def h5_to_album_with_models(filename, sample):
     print('saving csv...')
     save_df_verified(song_album, directory + 'first_pass_df-' + filename)
 
+
+def h5_to_album_with_only_models(filename, sample):
+    with h5py.File(directory + filename + '.h5', 'r') as hf:
+        data = hf[filename + '_dataset'][:]
+    print(np.shape(data))
+
+    intro_model, song_model = load_models()
+
+    #create folders for song pngs, add a nested folder for unverified pngs
+    if os.path.exists(directory + filename):
+        shutil.rmtree(directory + filename)
+    os.mkdir(directory + filename)
+    # if os.path.exists(directory + filename + '/unverified'):
+    #     shutil.rmtree(directory + filename + '/unverified')
+    os.mkdir(directory + filename + '/unverified')
+    os.makedirs(directory + filename + '/training_intros/positives/')
+    os.mkdir(directory + filename + '/training_intros/negatives')
+    os.makedirs(directory + filename + '/training_songs/positives/')
+    os.mkdir(directory + filename + '/training_songs/negatives')
+    os.makedirs(directory + filename + '/errors/training_songs/negatives')
+    os.mkdir(directory + filename + '/errors/training_songs/positives')
+    os.makedirs(directory + filename + '/errors/training_intros/negatives')
+    os.mkdir(directory + filename + '/errors/training_intros/positives')
+    song_album = []
+    #start iterating through the whole recording
+    i = 0
+    rows = len(data)
+    #if this is a sample, it only goes to 2000 columns ~46 seconds. if not, it does the whole recording.
+    if sample:
+        i = 0
+        columns = 1000
+    else:
+        columns = len(data[0])
+    print(rows)
+    print(columns)
+    last_song_time = 0
+    while i < (columns):
+
+        song_prediction = song_predict(data, i, columns, song_model)
+        if song_prediction > 0.9:      
+            print(f'time: {i * 0.023219814}, song prediction: {song_prediction}')
+            song_album.append(add_song_to_album(data, 1, rows, i, columns, {'soft notes': [[0, 0, 0, 0]], 'loud notes': [[0, 0, 0, 0]]}, {'onset time': i, 'onset time': i, 'onset freq': 0, 'length': 0, 'line values': [0], 'status': 'verified'}, 0, vertical_splash = False))
+            save_song_png(data, i, columns, {'onset time': i, 'status': 'verified'})
+            i += 70
+            continue
+        i += 2
+    #save a bunch of spectrograms
+    print('saving spectrograms...')
+    save_images(song_album, filename)
+    #save the album as a dataframe and then csv
+    print('saving csv...')
+    save_df_verified(song_album, directory + 'first_pass_df-' + filename)
+
 #saves pngs for the intro notes and sorts them into verified and unverified
 def save_intro_png(array, column, columns, line_dict):
     start_string = '{:.2f}'.format((round((line_dict['onset time']) * 0.023219814, 2)))
