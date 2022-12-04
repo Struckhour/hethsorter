@@ -31,7 +31,7 @@ color_cycle = cycle(plt.rcParams["axes.prop_cycle"].by_key()["color"])
     # VARIABLES
 recording_name = 'HERMIT1_20220529_044600-s'
 directory = recording_name + '/'
-filename = 'HERMIT1_20220529_044600-s-50m-end'
+filename = 'HERMIT4_20220429_052100-30m-40m'
 
 intro_max = -30
 verification_buffer = 15 #lines with an intro max that is this many dbs below intro_max will be in unverified: 10 seems good
@@ -61,14 +61,54 @@ match_threshold = 0.6 #this is the matchscore cutoff for deciding whether a ST g
 
 # LOAD A RECORDING AND FOURIER TRANSFORM IT
 def fourier(filename):
-    y, sr = librosa.load(filename)
-    print(f'sr = {sr}Hz')
+    y, sr = librosa.load(filename + '.wav')
+    # print(f'sr = {sr}Hz')
+    D = librosa.stft(y)
+    S_db = librosa.amplitude_to_db(np.abs(D), ref=np.max)
+    # print(np.shape(S_db))
+    S_db = S_db[120:743,:]
+    # S_db = S_db[220:283,:]
+    return S_db
+
+def ten_sec_fourier():
+    start_time = datetime.datetime.now()
+    for i in range(12):
+        y, sr = librosa.load(str(i) + 'test.wav')
+        print(f'loaded {i}')
+    print(datetime.datetime.now() - start_time)    
     D = librosa.stft(y)
     S_db = librosa.amplitude_to_db(np.abs(D), ref=np.max)
     print(np.shape(S_db))
     S_db = S_db[120:743,:]
     # S_db = S_db[220:283,:]
     return S_db
+
+def test_wav_for_noise(filename):
+    start_time = datetime.datetime.now()
+    newAudio = AudioSegment.from_wav(filename + '.wav')
+    length = newAudio.duration_seconds * 1000
+    division = int(length/12)
+    for i in range(12):
+        newSlice = newAudio[i * division:i*division + 10000]
+        newSlice.export(str(i) + 'test.wav', format="wav")
+    mean_list = []
+    for i in range(12):
+        data = fourier(str(i) + 'test')
+        data = data[120:743,:]
+        mean_list.append(np.mean(data))
+    print(np.mean(mean_list))
+    if np.mean(mean_list) > -55:
+        print('noisy')
+    elif np.mean(mean_list) > -63:
+        print('crowded')
+    else:
+        print('quiet')
+    for i in range(12):
+        os.remove(str(i) + 'test.wav')
+    print(datetime.datetime.now() - start_time)
+
+test_wav_for_noise(recording_name)
+
 
 # LOAD ARRAY FROM H5 AND CREATE SONG ALBUM AKA FIRST PASS
 def h5_to_album(filename, sample):
@@ -435,7 +475,7 @@ def save_song_png(array, column, columns, line_dict):
 
 def load_models():
     intro_model = tf.keras.models.load_model('test-intros-model.model')
-    song_model = tf.keras.models.load_model('test-song-model-2.model')
+    song_model = tf.keras.models.load_model('colabmodel.model')
     return intro_model, song_model
 
 def intro_predict(array, column, columns, line_dict, model):
@@ -878,7 +918,7 @@ def make_segment(array, start, duration):
 
 # CUT A SEGMENT, STORE IT AS AN H5 FILE
 def store_an_array(filename, start, duration):
-    data = fourier(filename + '.wav')
+    data = fourier(directory + filename + '.wav')
     new_seg = make_segment(data, start, duration)
     print(np.shape(new_seg))
     with h5py.File(str(duration) + 'seconds' + '.h5', 'w') as hf:
@@ -1630,6 +1670,16 @@ def slice_a_wav(start, end = 10000):
         name = directory + filename + '-' + str(start) + 's-' + str(end) + 's-slice' + '.wav'
         newSlice.export(name, format="wav") #Exports to a wav file in the current path.
 
+def take_ten_sec_samples():
+    newAudio = AudioSegment.from_wav(recording_name + '.wav')
+    length = newAudio.duration_seconds * 1000
+    division = int(length/12)
+    for i in range(12):
+        newSlice = newAudio[i * division:i*division + 10000]
+        newSlice.export(str(i) + 'test.wav', format="wav")
+    print('done')
+
+# take_ten_sec_samples()
 
 def set_up():
     data = fourier(directory + filename + '.wav')
@@ -1790,7 +1840,7 @@ def load_variables():
 # first_pass_sample() # this grabs a little sample of the data to inspect
 # #creates df.csv and folder of prospective spectrograms. delete rows and make changes to intro column in df.csv before second pass. Takes ~2min
 
-first_pass()
+# first_pass()
 
 
 
@@ -1818,7 +1868,7 @@ first_pass()
 # #creates df.csv and folder of prospective spectrograms. delete rows and make changes to intro column in df.csv before second pass. Takes ~1:51
 
 # first_pass_sample()
-# check_the_numbers(148.19, 0.6)
+# check_the_numbers(0, 10)
 # first_pass()
 
 # #creates new folder of spectrograms and updates first_pass-.csv. Then it compares songs, assigns categories, creates images sorted by ST, and creates master sheet. Takes ~2min
