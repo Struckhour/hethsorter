@@ -29,14 +29,14 @@ color_cycle = cycle(plt.rcParams["axes.prop_cycle"].by_key()["color"])
 
 
     # VARIABLES
-recording_name = 'HERMIT1_20220529_044600-s'
+recording_name = 'A-songs-HERMIT5_20220502_070649-s'
 directory = recording_name + '/'
-filename = 'HERMIT4_20220429_052100-30m-40m'
+filename = 'A-songs-HERMIT5_20220502_070649-s-0m-10m-155s-end-slice'
 
 intro_max = -30
-verification_buffer = 15 #lines with an intro max that is this many dbs below intro_max will be in unverified: 10 seems good
+verification_buffer = 10 #lines with an intro max that is this many dbs below intro_max will be in unverified: 10 seems good. keep in mind line values (including max) must exceed intro_threshold. verification buffer will not capture soft intro notes. low intro_onset and low intro_threshold combined with a large verification buffer will.
 intro_onset = intro_max - 10
-intro_threshold = intro_max - 15
+intro_threshold = intro_max - 10
 intro_min_length = 8
 intro_max_length = 17
 intro_jumps = 1
@@ -62,11 +62,22 @@ match_threshold = 0.6 #this is the matchscore cutoff for deciding whether a ST g
 # LOAD A RECORDING AND FOURIER TRANSFORM IT
 def fourier(filename):
     y, sr = librosa.load(filename + '.wav')
+    # print(f'max of y is: {np.max(y)}')
     # print(f'sr = {sr}Hz')
     D = librosa.stft(y)
+    # print(f'max of D is: {np.max(D)}')
+    D = D[120:743,:]
     S_db = librosa.amplitude_to_db(np.abs(D), ref=np.max)
-    # print(np.shape(S_db))
-    S_db = S_db[120:743,:]
+    # for row_int in range(len(S_db)):
+    #     for col_int in range(len(S_db[0])):
+    #         if S_db[row_int, col_int] == 0.0:
+    #             print(f'found it at row:{row_int}, column:{col_int}')
+    #             break
+    #     else:
+    #         continue
+    #     break
+    # print(np.max(S_db))
+    # S_db = S_db[120:743,:]
     # S_db = S_db[220:283,:]
     return S_db
 
@@ -83,125 +94,175 @@ def ten_sec_fourier():
     # S_db = S_db[220:283,:]
     return S_db
 
-def test_wav_for_noise(filename):
+def load_models():
+    intro_model = tf.keras.models.load_model('dec8-93-intro-colabmodel.model')
+    song_model = tf.keras.models.load_model('dec8-91-colabmodel.model')
+    return intro_model, song_model
+
+def test_wav_for_noise(folder, wave):
     start_time = datetime.datetime.now()
-    newAudio = AudioSegment.from_wav(filename + '.wav')
+    path = os.path.join(folder, wave)
+    newAudio = AudioSegment.from_wav(path)
     length = newAudio.duration_seconds * 1000
     division = int(length/12)
-    for i in range(12):
-        newSlice = newAudio[i * division:i*division + 10000]
-        newSlice.export(str(i) + 'test.wav', format="wav")
-    mean_list = []
-    for i in range(12):
-        data = fourier(str(i) + 'test')
-        data = data[120:743,:]
-        mean_list.append(np.mean(data))
-    print(np.mean(mean_list))
-    if np.mean(mean_list) > -55:
-        print('noisy')
-    elif np.mean(mean_list) > -63:
-        print('crowded')
-    else:
-        print('quiet')
-    for i in range(12):
-        os.remove(str(i) + 'test.wav')
+    for i in range(11):
+        newSlice = newAudio[(i+1) * division:(i+1)*division + 10000]
+        newSlice.export(str(i+1) + 'test.wav', format="wav")
+    median_list = []
+    found_song = False
+    intro_model, song_model = load_models()
+    for i in range(11):
+        data = fourier(str(i+1) + 'test')
+        current_median = np.median(data)
+        # print(f'{wave} median: {current_median}')
+        # if current_median < -45:
+        #     display_spect(data)
+        median_list.append(current_median)
+        decibel_threshold = current_median + 15
+        if not found_song and current_median < -55:
+            found_song = look_for_heth(data, intro_model, song_model, decibel_threshold)
+    print(f'{wave} mean median: {np.mean(median_list)}, min median: {np.min(median_list)}')
+    noise_level = 'A'
+    found_string = 'blank'
+    if np.mean(median_list) > -35 and np.min(median_list) > -35:
+        noise_level = 'F'
+    elif np.mean(median_list) > -35 and np.min(median_list) > -45:
+        noise_level = 'E'
+    elif np.mean(median_list) > -35:
+        noise_level = 'D'
+    elif np.mean(median_list) > -45 and np.min(median_list) > -45:
+        noise_level = 'C'
+    elif np.mean(median_list) > -45:
+        noise_level = 'B'
+    if found_song:
+        found_string = 'songs'
+    for i in range(11):
+        os.remove(str(i+1) + 'test.wav')
+    new_name = noise_level + '-' + found_string + '-' + wave
+    os.rename(path, os.path.join(folder, new_name))
     print(datetime.datetime.now() - start_time)
+    return median_list
 
-test_wav_for_noise(recording_name)
+def check_folder_for_noise(folder):
+    big_median_list = []
+    max_median_list = []
+    for wave in os.listdir(folder):
+        median_list = test_wav_for_noise(folder, wave)
+        big_median_list.append(np.mean(median_list))
+        max_median_list.append(np.min(median_list))
+    # flat_list = [item for sublist in big_median_list for item in sublist]
+    plt.hist(max_median_list, bins=20, density=True)
+    plt.show()
 
+
+
+def reset_waves_in_folder(folder):
+    for wave in os.listdir(folder):
+        new_wave = wave.removeprefix('blank-')
+        new_wave = new_wave.removeprefix('songs-')
+        new_wave = new_wave.removeprefix('noisy-')
+        new_wave = new_wave.removeprefix('crowded-')
+        new_wave = new_wave.removeprefix('clean-')
+        new_wave = new_wave.removeprefix('A-')
+        new_wave = new_wave.removeprefix('B-')
+        new_wave = new_wave.removeprefix('C-')
+        new_wave = new_wave.removeprefix('D-')
+        new_wave = new_wave.removeprefix('E-')
+        new_wave = new_wave.removeprefix('F-')
+        os.rename(os.path.join(folder, wave), os.path.join(folder, new_wave))
 
 # LOAD ARRAY FROM H5 AND CREATE SONG ALBUM AKA FIRST PASS
-def h5_to_album(filename, sample):
-    with h5py.File(directory + filename + '.h5', 'r') as hf:
-        data = hf[filename + '_dataset'][:]
-    print(np.shape(data))
+# def h5_to_album(filename, sample):
+#     with h5py.File(directory + filename + '.h5', 'r') as hf:
+#         data = hf[filename + '_dataset'][:]
+#     print(np.shape(data))
 
-    #create folders for song pngs, add a nested folder for unverified pngs
-    if os.path.exists(directory + filename):
-        shutil.rmtree(directory + filename)
-    os.mkdir(directory + filename)
-    # if os.path.exists(directory + filename + '/unverified'):
-    #     shutil.rmtree(directory + filename + '/unverified')
-    os.mkdir(directory + filename + '/unverified')
-    os.makedirs(directory + filename + '/training_intros/positives/')
-    os.mkdir(directory + filename + '/training_intros/negatives')
-    os.makedirs(directory + filename + '/training_songs/positives/')
-    os.mkdir(directory + filename + '/training_songs/negatives')
-    os.makedirs(directory + filename + '/errors/training_songs/negatives')
-    os.mkdir(directory + filename + '/errors/training_songs/positives')
-    os.makedirs(directory + filename + '/errors/training_intros/negatives')
-    os.mkdir(directory + filename + '/errors/training_intros/positives')
-    song_album = []
-    #start iterating through the whole recording
-    i = 0
-    rows = len(data)
-    #if this is a sample, it only goes to 2000 columns ~46 seconds. if not, it does the whole recording.
-    if sample:
-        i = 0
-        columns = 2000
-    else:
-        columns = len(data[0])
-    print(rows)
-    print(columns)
-    while i < (columns):
-        j = 0
-        check_higher_intros = False
-        while j < 450: #this is 450 because there aren't intro songs above 450...usually????
-            # print(array[j][i])
-            if i >= columns:
-                break
-            if (data[j][i] > intro_onset):
-                line_dict = check_for_thread_strict(data, j, i, rows, columns, intro_threshold, intro_max, intro_min_length, intro_max_length)
-                if line_dict['length'] > intro_min_length:
-                    vertical_splash = check_for_three_vertical_splash(data, j, i, rows, 30, line_dict['mean db'], line_dict['max db'], line_dict['index values'], intro_min_length)
-                    if (not check_higher_intros) or (check_higher_intros and not vertical_splash and (line_dict['status'] == 'verified')):
-                        post_notes = check_for_posts(data, post_threshold, post_onset, i, columns, rows, loud_post_threshold)
-                        if post_notes:
-                            if not (vertical_splash and line_dict['status'] == 'unverified'):
-                                if check_higher_intros:
-                                    pop_song = song_album.pop()
-                                    delete_intro_png(last_line_dict)
-                                    delete_song_png(last_line_dict)
-                                    print(f'popping song at {pop_song["intro time"]}')
-                            #cut the song out and add it to album
-                                if line_dict['status'] == 'unverified':
-                                    print(f'row: {j}, time: {i * 0.023219814}, intro note not loud enough')
-                                if vertical_splash:
-                                    print(f'row: {j}, time: {i * 0.023219814}, unverified by the splash function')
-                                song_album.append(add_song_to_album(data, j, rows, i, columns, post_notes, line_dict, vertical_splash))
-                                save_intro_png(data, i, columns, line_dict)
-                                save_song_png(data, i, columns, line_dict)
-                            # since it has the right post_notes and a good intro note, skip the width of a song and continue on
-                                if song_album[-1]['status'] == 'verified':
-                                    i += 70
-                                    break
-                                else:
-                                    check_higher_intros = True
-                                    last_line_dict = line_dict.copy()
-                            else:
-                                print(f'row: {j}, time: {i * 0.023219814}, unverified by vertical splash and too soft of an intro note')
-                        else:
-                            print(f'row: {j}, time: {i * 0.023219814}, did not pass post note tests')
-                            i += 1
-                            break
-            j += 5
-        if check_higher_intros:            
-            i += 3
-        else:
-            i += 2
-    #save a bunch of spectrograms
-    print('saving spectrograms...')
-    save_images(song_album, filename)
-    #save the album as a dataframe and then csv
-    print('saving csv...')
-    save_df_verified(song_album, directory + 'first_pass_df-' + filename)
+#     #create folders for song pngs, add a nested folder for unverified pngs
+#     if os.path.exists(directory + filename):
+#         shutil.rmtree(directory + filename)
+#     os.mkdir(directory + filename)
+#     # if os.path.exists(directory + filename + '/unverified'):
+#     #     shutil.rmtree(directory + filename + '/unverified')
+#     os.mkdir(directory + filename + '/unverified')
+#     os.makedirs(directory + filename + '/training_intros/positives/')
+#     os.mkdir(directory + filename + '/training_intros/negatives')
+#     os.makedirs(directory + filename + '/training_songs/positives/')
+#     os.mkdir(directory + filename + '/training_songs/negatives')
+#     os.makedirs(directory + filename + '/errors/training_songs/negatives')
+#     os.mkdir(directory + filename + '/errors/training_songs/positives')
+#     os.makedirs(directory + filename + '/errors/training_intros/negatives')
+#     os.mkdir(directory + filename + '/errors/training_intros/positives')
+#     song_album = []
+#     #start iterating through the whole recording
+#     i = 0
+#     rows = len(data)
+#     #if this is a sample, it only goes to 2000 columns ~46 seconds. if not, it does the whole recording.
+#     if sample:
+#         i = 0
+#         columns = 2000
+#     else:
+#         columns = len(data[0])
+#     print(rows)
+#     print(columns)
+#     while i < (columns):
+#         j = 0
+#         check_higher_intros = False
+#         while j < 450: #this is 450 because there aren't intro songs above 450...usually????
+#             # print(array[j][i])
+#             if i >= columns:
+#                 break
+#             if (data[j][i] > intro_onset):
+#                 line_dict = check_for_thread_strict(data, j, i, rows, columns, intro_threshold, intro_max, intro_min_length, intro_max_length)
+#                 if line_dict['length'] > intro_min_length:
+#                     vertical_splash = check_for_three_vertical_splash(data, j, i, rows, 30, line_dict['mean db'], line_dict['max db'], line_dict['index values'], intro_min_length)
+#                     if (not check_higher_intros) or (check_higher_intros and not vertical_splash and (line_dict['status'] == 'verified')):
+#                         post_notes = check_for_posts(data, post_threshold, post_onset, i, columns, rows, loud_post_threshold)
+#                         if post_notes:
+#                             if not (vertical_splash and line_dict['status'] == 'unverified'):
+#                                 if check_higher_intros:
+#                                     pop_song = song_album.pop()
+#                                     delete_intro_png(last_line_dict)
+#                                     delete_song_png(last_line_dict)
+#                                     print(f'popping song at {pop_song["intro time"]}')
+#                             #cut the song out and add it to album
+#                                 if line_dict['status'] == 'unverified':
+#                                     print(f'row: {j}, time: {i * 0.023219814}, intro note not loud enough')
+#                                 if vertical_splash:
+#                                     print(f'row: {j}, time: {i * 0.023219814}, unverified by the splash function')
+#                                 song_album.append(add_song_to_album(data, j, rows, i, columns, post_notes, line_dict, vertical_splash))
+#                                 save_intro_png(data, i, columns, line_dict)
+#                                 save_song_png(data, i, columns, line_dict)
+#                             # since it has the right post_notes and a good intro note, skip the width of a song and continue on
+#                                 if song_album[-1]['status'] == 'verified':
+#                                     i += 70
+#                                     break
+#                                 else:
+#                                     check_higher_intros = True
+#                                     last_line_dict = line_dict.copy()
+#                             else:
+#                                 print(f'row: {j}, time: {i * 0.023219814}, unverified by vertical splash and too soft of an intro note')
+#                         else:
+#                             print(f'row: {j}, time: {i * 0.023219814}, did not pass post note tests')
+#                             i += 1
+#                             break
+#             j += 5
+#         if check_higher_intros:            
+#             i += 3
+#         else:
+#             i += 2
+#     #save a bunch of spectrograms
+#     print('saving spectrograms...')
+#     save_images(song_album, filename)
+#     #save the album as a dataframe and then csv
+#     print('saving csv...')
+#     save_df_verified(song_album, directory + 'first_pass_df-' + filename)
 
 
 def h5_to_album_with_models(filename, sample):
     with h5py.File(directory + filename + '.h5', 'r') as hf:
         data = hf[filename + '_dataset'][:]
     print(np.shape(data))
-
+    load_variables(data)
     intro_model, song_model = load_models()
 
     #create folders for song pngs, add a nested folder for unverified pngs
@@ -349,6 +410,91 @@ def h5_to_album_with_models(filename, sample):
     print('saving csv...')
     save_df_verified(song_album, directory + 'first_pass_df-' + filename)
 
+def look_for_heth(data, intro_model, song_model, decibel_threshold):
+    #start iterating through the whole recording
+    i = 0
+    rows = len(data)
+    columns = len(data[0])
+    while i < (columns):
+        j = 0
+        while j < 450: #this is 450 because there aren't intro songs above 450...usually????
+            if i >= columns:
+                break
+            song_score = 0
+            if (data[j][i] > decibel_threshold):
+                line_dict = check_for_thread_strict(data, j, i, rows, columns, decibel_threshold, decibel_threshold + 5, intro_min_length, intro_max_length)
+                if line_dict['length'] > intro_min_length:
+                    splash_score = check_for_three_vertical_splash(data, j, i, rows, 30, line_dict['mean db'], line_dict['max db'], line_dict['index values'], intro_min_length)
+                    intro_prediction = intro_predict(data, i, columns, line_dict, intro_model)
+                    print(f'mean_db: {line_dict["mean db"]}, splash score: {splash_score}, intro prediction: {intro_prediction}')
+                    #calculate line amplitude score
+                    if line_dict['mean db'] > intro_max + 10:
+                        song_score += 3
+                    elif line_dict['mean db'] > intro_max:
+                        song_score += 2
+                    elif line_dict['mean db'] > intro_max - 10:
+                        song_score += 1
+                    #calculate line splash score
+                    if splash_score == 0:
+                        song_score += 3
+                    elif splash_score < 2:
+                        song_score += 2
+                    elif splash_score < 3:
+                        song_score += 1
+                    #calculate intro prediction score
+                    if intro_prediction == 1:
+                        song_score += 3
+                    elif intro_prediction > 0.99999:
+                        song_score += 2
+                    elif intro_prediction > 0.00001:
+                        song_score += 1
+                    #check time since last super verified song and penalize if it was too recent
+                    print(f'song score: {song_score}')
+                    if song_score > 3:
+                        print('checking for posts and making song prediction')
+                        song_prediction = song_predict(data, i, columns, song_model)
+                        post_notes = check_for_posts(data, decibel_threshold - 5, decibel_threshold - 10, i, columns, rows, decibel_threshold + 5)
+                        if post_notes:
+                            #calculate post note score
+                            loud_score = 0
+                            for loudnote in post_notes['loud notes']:
+                                if loudnote[1] > 10 and loudnote[1] < 40:
+                                    loud_score += 1   
+                            if loud_score > 2:
+                                song_score += 1
+                            elif loud_score > 1:
+                                pass
+                            elif loud_score > 0:
+                                song_score -= 2
+                            else:
+                                song_score -= 4
+
+                            #calculate song_prediction score
+
+                            if song_prediction == 1:
+                                song_score += 4
+                            elif song_prediction > 0.99999:
+                                song_score += 3
+                            elif song_prediction > 0.00001:
+                                song_score += 2
+                            if song_score > 9:
+                                print(f'song score at row: {j}, time: {i *0.023219814}: {song_score}')
+                                return True
+                        else:
+                            print(f'row: {j}, time: {i * 0.023219814}, did not pass post note tests')
+                            i += 1
+                            break
+                    else:
+                        song_prediction = song_predict(data, i, columns, song_model)
+                        if song_prediction < 0.00001:
+                            print(f'jumping ahead at {i}')
+                            i += 2
+                            break
+            j += 5
+        print(f'moving 2 columns forward at {i}')
+        i += 2
+    return False
+
 
 def h5_to_album_with_only_models(filename, sample):
     with h5py.File(directory + filename + '.h5', 'r') as hf:
@@ -473,19 +619,20 @@ def save_song_png(array, column, columns, line_dict):
     song_image = song_image.convert('RGB')
     song_image.save(song_name)
 
-def load_models():
-    intro_model = tf.keras.models.load_model('test-intros-model.model')
-    song_model = tf.keras.models.load_model('colabmodel.model')
-    return intro_model, song_model
+
 
 def intro_predict(array, column, columns, line_dict, model):
     midrow = max(line_dict['index values']) - (floor((max(line_dict['index values']) -  min(line_dict['index values'])) / 2))
     top_row = midrow+30
     bot_row = midrow-29
+    if bot_row < 0:
+        return 0
+    if top_row > len(array):
+        return 0
     if column > len(array[0]) - 19:
         new_array = array[bot_row:top_row, column:columns]
         shorter_cols = np.shape(new_array)[1]
-        zero_array = np.zeros((623, 19))
+        zero_array = np.zeros((59, 19))
         zero_array.fill(-80)
         col_diff = 19 - shorter_cols 
         zero_array[:,:-col_diff] = new_array
@@ -495,7 +642,7 @@ def intro_predict(array, column, columns, line_dict, model):
         intro_array = array[bot_row:top_row, column:column+19].copy()
     intro_array = (intro_array+80)*(255/80)
     intro_array = intro_array.reshape(-1, 59, 19, 1)
-    prediction = model.predict([intro_array])
+    prediction = model.predict([intro_array], verbose=0)
     return prediction[0][0]
 
 def song_predict(array, column, columns, model):
@@ -512,7 +659,7 @@ def song_predict(array, column, columns, model):
         song_array = array[:, column:column+69].copy()
     song_array = (song_array+80)*(255/80)
     song_array = song_array.reshape(-1, 623, 69, 1)
-    prediction = model.predict([song_array])
+    prediction = model.predict([song_array], verbose=0)
     return prediction[0][0]
 
 # with h5py.File(directory + filename + '.h5', 'r') as hf:
@@ -585,25 +732,25 @@ def make_ST_album(array, combo_df, folder: string, length: float):
         column += length
 
 #makes the df for the second pass, when songs have been reviewed and finalized. So there is no verified or unverified.
-def save_df(song_album, dfname):
-    datadict = {'intro column': [], 'intro time': [], 'intro freq': [], 'status': [], 'intro length': [],'post size': [], 'soft locs': [], 'loud locs':[]}
+# def save_df(song_album, dfname):
+#     datadict = {'intro column': [], 'intro time': [], 'intro freq': [], 'status': [], 'intro length': [],'post size': [], 'soft locs': [], 'loud locs':[]}
 
-    for entry in song_album:
-        datadict['intro column'].append(entry['intro column'])
-        datadict['intro time'].append(entry['intro time'])
-        datadict['intro freq'].append(entry['intro freq'])
-        datadict['status'].append(entry['status'])
-        datadict['intro length'].append(entry['intro length'])       
-        datadict['soft locs'].append(''.join(','.join(map(str, entry['soft notes']))))
-        datadict['loud locs'].append(''.join(','.join(map(str, entry['loud notes']))))
-        datadict['post size'].append(len(entry['soft notes']) + len(entry['loud notes']))
+#     for entry in song_album:
+#         datadict['intro column'].append(entry['intro column'])
+#         datadict['intro time'].append(entry['intro time'])
+#         datadict['intro freq'].append(entry['intro freq'])
+#         datadict['status'].append(entry['status'])
+#         datadict['intro length'].append(entry['intro length'])       
+#         datadict['soft locs'].append(''.join(','.join(map(str, entry['soft notes']))))
+#         datadict['loud locs'].append(''.join(','.join(map(str, entry['loud notes']))))
+#         datadict['post size'].append(len(entry['soft notes']) + len(entry['loud notes']))
 
-    df = pd.DataFrame(datadict)
-    df.to_csv(dfname + '.csv', index=False)
+#     df = pd.DataFrame(datadict)
+#     df.to_csv(dfname + '.csv', index=False)
 
 #makes the first pass df with both verified and unverified songs, sorted by intro note onset time
 def save_df_verified(song_album, dfname):
-    datadict = {'intro column': [], 'intro time': [], 'action': [], 'intro freq': [], 'status': [], 'song score': [], 'intro length': [], 'intro values': [], 'post size': [], 'soft locs': [], 'loud locs':[]}
+    datadict = {'intro column': [], 'intro time': [], 'action': [], 'intro freq': [], 'status': [], 'song score': [],'intro length': [], 'intro values': [], 'post size': [], 'soft locs': [], 'loud locs':[]}
 
     for entry in song_album:
         datadict['intro column'].append(entry['intro column'])
@@ -816,24 +963,27 @@ def check_for_vertical_splash(array, row, column, rows, splash_range, mean_db, m
 
 def check_for_three_vertical_splash(array, row, column, rows, splash_range, mean_db, max_db, index_list, intro_min_length):
     score = 0
+    #checks at three places: the beginning, middle, and end
     column_spots = [0, floor(intro_min_length/2), intro_min_length]
     for j in column_spots:
         value_list = []
         splash_range_internal = splash_range
-        if index_list[j] + splash_range + 10 > rows:
-            return False
-        for i in range(splash_range_internal):
-            value_list.append(array[index_list[j] + 10 + i][column + j])
-        if np.mean(value_list) > (mean_db - splash_threshold):
-            # print(f'at row: {index_list[j]}, column: {column + j} upper splash over threshold ({mean_db - splash_threshold}) with {np.mean(value_list)}')
-            score += 1
+        #check if the intro note is too close to top
+        if index_list[j] + splash_range + 10 < rows:
+        #splash up and add one if it hits
+            for i in range(splash_range_internal):
+                value_list.append(array[index_list[j] + 10 + i][column + j])
+            if np.mean(value_list) > (mean_db - splash_threshold):
+                # print(f'at row: {index_list[j]}, column: {column + j} upper splash over threshold ({mean_db - splash_threshold}) with {np.mean(value_list)}')
+                score += 1
         value_list = []
-        if index_list[j] - 10 - splash_range < 0:
-            return False
-        for i in range(splash_range_internal):
-            value_list.append(array[index_list[j] - 10 - i][column + j])
-        if np.mean(value_list) > (mean_db - splash_threshold):
-            score += 1
+        #if the note is so low that you can splash down, return false
+        if index_list[j] - 10 - splash_range > 0:
+        #splash down and add one if it hits
+            for i in range(splash_range_internal):
+                value_list.append(array[index_list[j] - 10 - i][column + j])
+            if np.mean(value_list) > (mean_db - splash_threshold):
+                score += 1
         
     return score
 
@@ -866,7 +1016,7 @@ def display_spect(array):
     img = librosa.display.specshow(array, x_axis='time', y_axis=None, sr=22050, ax=ax)
     ax.set_title('Spectrogram Example', fontsize=20)
     fig.colorbar(img, ax=ax, format=f'%0.2f')
-    fig.gca().set_yticks(range(0, 743-120, 50))
+    fig.gca().set_yticks(range(0, 743-120, 25))
     fig.gca().set_ylabel("Row")
     plt.show()
 
@@ -918,7 +1068,7 @@ def make_segment(array, start, duration):
 
 # CUT A SEGMENT, STORE IT AS AN H5 FILE
 def store_an_array(filename, start, duration):
-    data = fourier(directory + filename + '.wav')
+    data = fourier(directory + filename)
     new_seg = make_segment(data, start, duration)
     print(np.shape(new_seg))
     with h5py.File(str(duration) + 'seconds' + '.h5', 'w') as hf:
@@ -1367,6 +1517,7 @@ def make_selection_table(dicty):
 def create_song_album_from_df(dicty_list, filename: string):
     with h5py.File(directory + filename + '.h5', 'r') as hf:
         data = hf[filename + '_dataset'][:]
+    load_variables(data)
     song_album = []
     # if os.path.exists(filename):
     #     shutil.rmtree(filename)
@@ -1391,7 +1542,7 @@ def create_song_album_from_df(dicty_list, filename: string):
                             post_notes = check_for_posts(data, post_threshold, post_onset, i, columns, rows, loud_post_threshold)
                             #cut the song out and add it to album
                             if post_notes:
-                                song_album.append(add_song_to_album(data, j, rows, i, columns, post_notes, line_dict,  vertical_splash=False))
+                                song_album.append(add_song_to_album(data, j, rows, i, columns, post_notes, line_dict, song_score=100, vertical_splash=False))
                                 print('added a new song to the song album!')
                                 i += 70
                                 break
@@ -1509,6 +1660,15 @@ def create_song_album_from_df(dicty_list, filename: string):
     df_all_rows = df_all_rows.sort_values(by=['intro time'])
     df_all_rows.to_csv(directory + 'second_pass_df-' + filename + '.csv', index=False)
 
+def edit_first_pass_timesheet(time):
+
+    timesheet = pd.read_csv('first_pass_timesheet.csv')
+    new_line = {'Recording': filename, "Timestamp": datetime.datetime.now(), "runtime": time}
+    new_line_df = pd.DataFrame(new_line, index=[0])
+
+    new_scoresheet = pd.concat([timesheet, new_line_df[:]]).reset_index(drop=True)
+    new_scoresheet.to_csv('first_pass_timesheet.csv', index=False)   
+
 def edit_scoresheet():
     first_pass_df = pd.read_csv(directory + 'first_pass_df-' + filename + '.csv')
     scoresheet = pd.read_csv('scoresheet.csv')
@@ -1517,7 +1677,7 @@ def edit_scoresheet():
     
     falsepos = len(first_pass_df[(first_pass_df['action']=='d') & (first_pass_df['status'] == 'verified')]) + len(first_pass_df[first_pass_df['action']=='a'])
     
-    total_songs = len(first_pass_df[first_pass_df['status'] == 'verified']) - falsepos + falseneg
+    total_songs = len(first_pass_df[first_pass_df['status'] == 'verified']) + falseneg - len(first_pass_df[(first_pass_df['status'] == 'verified') & (first_pass_df['action'] =='d')])
     
     truepos = len(first_pass_df[(first_pass_df['status'] == 'verified') & (first_pass_df['action'].isnull())])
     
@@ -1681,17 +1841,28 @@ def take_ten_sec_samples():
 
 # take_ten_sec_samples()
 
-def set_up():
-    data = fourier(directory + filename + '.wav')
-    print(np.shape(data))
-    with h5py.File(directory + filename + '.h5', 'w') as hf:
-        hf.create_dataset(filename + "_dataset", data=data)
+def set_up(input):
+    #make an either or situation for folder vs file 
+    if input == 'file':
+        data = fourier(directory + filename)
+        with h5py.File(directory + filename + '.h5', 'w') as hf:
+            hf.create_dataset(filename + "_dataset", data=data)
+        with h5py.File(directory + filename + '.h5', 'r') as hf:
+            data = hf[filename + '_dataset'][:]
+        cut_array_into_specs(data, directory + filename + '_chunks', 20)
+    else:
+        for wave in os.listdir(directory):
+            wave = wave.removesuffix('.wav')
+            data = fourier(directory + wave)
+            print(np.shape(data))
+            with h5py.File(directory + wave + '.h5', 'w') as hf:
+                hf.create_dataset(wave + "_dataset", data=data)
 
 
     # CUT ARRAY INTO CHUNKS
-    with h5py.File(directory + filename + '.h5', 'r') as hf:
-        data = hf[filename + '_dataset'][:]
-    cut_array_into_specs(data, directory + filename + '_chunks', 20)
+            with h5py.File(directory + wave + '.h5', 'r') as hf:
+                data = hf[wave + '_dataset'][:]
+            cut_array_into_specs(data, directory + wave + '_chunks', 20)
 
 
 def check_the_numbers(start, duration):
@@ -1704,7 +1875,10 @@ def check_the_numbers(start, duration):
 #STORE THE WAV AS AN H5 FILE. BE AWARE, FOURIER SLICES OFF THE BOTTOM AND TOP
 
 def first_pass():
+    start_time = datetime.datetime.now()
     h5_to_album_with_models(filename, False)
+    total_time = datetime.datetime.now() - start_time
+    edit_first_pass_timesheet(total_time)
 
 def first_pass_sample():
     h5_to_album_with_models(filename, True)
@@ -1824,18 +1998,62 @@ def final_adjustments_from_template():
 # new_seg = make_segment(data, 170, 140)
 
 
-def load_variables():
-    variables = pd.read_csv(variables)
-    print(variables)
+def load_variables(array):
+    global intro_threshold
+    global intro_max
+    global intro_onset
+    global post_max
+    global post_onset
+    global post_threshold
+    global loud_post_threshold
+
+    intro_threshold = np.median(array) + np.std(array) * (0.75 + (abs(-45 - np.median(array))/20))
+    intro_max = intro_threshold + 15
+    intro_onset = intro_threshold
+
+    post_max = intro_max - 5
+    post_onset = intro_threshold
+    post_threshold = intro_threshold
+    loud_post_threshold = post_max + 10
 
 
+    
+
+
+def check_prob_dist():
+    with h5py.File(directory + filename + '.h5', 'r') as hf:
+        data = hf[filename + '_dataset'][:]
+    print(np.max(data))
+    # print(data[0][0])
+    # data = abs(data)
+    print(data[0][0])
+    print(data.shape)
+    print(np.percentile(data, 50))
+    print(np.median(data))
+    print(np.percentile(data, 90))
+    print(np.std(data))
+    new_data = [0, 1, 3, 2, 3, 2, 1, 0, 1, 2, 3]
+    plt.hist(np.ravel(data), bins=32, density=True)
+    # plt.xlabel('Smarts')
+    # plt.ylabel('Probability')
+    # plt.title('Histogram of IQ')
+    # plt.text(60, .025, r'$\mu=100,\ \sigma=15$')
+    # plt.xlim(40, 160)
+    # plt.ylim(0, 0.03)
+    # plt.grid(True)
+    plt.show()
+
+# check_prob_dist()
 
 # EXECUTE CODE BELOW HERE FOR INITIAL 10MIN OF A BIRD
 
 #fourier transform, stores h5 file, creates 20sec spectrograms. Have a look at thresholds. Takes ~40sec
 # cut_wav_into_ten_minute_wavs()
-# set_up() 
-# slice_a_wav(420)
+# set_up('folder') 
+# set_up('file') 
+# slice_a_wav(155)
+
+# check_the_numbers(334, 2)
 
 # first_pass_sample() # this grabs a little sample of the data to inspect
 # #creates df.csv and folder of prospective spectrograms. delete rows and make changes to intro column in df.csv before second pass. Takes ~2min
@@ -1845,7 +2063,7 @@ def load_variables():
 
 
 # #creates new folder of spectrograms and new_df.csv. Then it compares songs, assigns categories, creates images sorted by ST, and creates master sheet. Takes ~2.5min
-# second_pass() 
+second_pass()
 
 # categorize()
 
@@ -1868,7 +2086,7 @@ def load_variables():
 # #creates df.csv and folder of prospective spectrograms. delete rows and make changes to intro column in df.csv before second pass. Takes ~1:51
 
 # first_pass_sample()
-# check_the_numbers(0, 10)
+# check_the_numbers(379, 1)
 # first_pass()
 
 # #creates new folder of spectrograms and updates first_pass-.csv. Then it compares songs, assigns categories, creates images sorted by ST, and creates master sheet. Takes ~2min
@@ -1876,3 +2094,15 @@ def load_variables():
 
 # #input any final ST changes such as "all Cs should be Bs". Creates new folder and new master sheet. Takes ~50sec
 # final_adjustments_from_template()
+
+
+# check_folder_for_noise(recording_name)
+
+# start_time = datetime.datetime.now()
+# data = fourier(filename)
+# print(f'the mean of the whole hour is: {np.mean(data)}')
+# print(datetime.datetime.now() - start_time)
+
+# reset_waves_in_folder(recording_name)
+
+# check_folder_for_noise(recording_name)
