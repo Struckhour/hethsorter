@@ -29,12 +29,12 @@ color_cycle = cycle(plt.rcParams["axes.prop_cycle"].by_key()["color"])
 
 
     # VARIABLES
-recording_name = 'A-songs-HERMIT5_20220502_070649-s'
+recording_name = 'A-songs-HERMIT5_20220607_044200'
 directory = recording_name + '/'
-filename = 'A-songs-HERMIT5_20220502_070649-s-0m-10m-155s-end-slice'
+filename = 'A-songs-HERMIT5_20220607_044200-10m-20m'
 
 intro_max = -30
-verification_buffer = 10 #lines with an intro max that is this many dbs below intro_max will be in unverified: 10 seems good. keep in mind line values (including max) must exceed intro_threshold. verification buffer will not capture soft intro notes. low intro_onset and low intro_threshold combined with a large verification buffer will.
+verification_buffer = 1 #lines with an intro max that is this many dbs below intro_max will be in unverified: 10 seems good. keep in mind line values (including max) must exceed intro_threshold. verification buffer will not capture soft intro notes. low intro_onset and low intro_threshold combined with a large verification buffer will.
 intro_onset = intro_max - 10
 intro_threshold = intro_max - 10
 intro_min_length = 8
@@ -301,44 +301,64 @@ def h5_to_album_with_models(filename, sample):
             if i >= columns:
                 break
             song_score = 0
+            intro_song_score = 0
             if (data[j][i] > intro_onset):
                 line_dict = check_for_thread_strict(data, j, i, rows, columns, intro_threshold, intro_max, intro_min_length, intro_max_length)
                 if line_dict['length'] > intro_min_length:
+                    weight_list = [1, 2, 2, 3, 3, 4] #weights: [mean_intro, splash, intro predict, timing, loudnotes, song predict] 
+                    score_list = []
                     splash_score = check_for_three_vertical_splash(data, j, i, rows, 30, line_dict['mean db'], line_dict['max db'], line_dict['index values'], intro_min_length)
                     intro_prediction = intro_predict(data, i, columns, line_dict, intro_model)
                     #calculate line amplitude score
-                    if line_dict['mean db'] > intro_max + 10:
-                        song_score += 3
-                    elif line_dict['mean db'] > intro_max:
-                        song_score += 2
+                    if line_dict['mean db'] > intro_max:
+                        score_list.append(1)
+                    elif line_dict['mean db'] > intro_max -5:
+                        score_list.append(.67)
                     elif line_dict['mean db'] > intro_max - 10:
-                        song_score += 1
+                        score_list.append(.33)
+                    else:
+                        score_list.append(0)
                     #calculate line splash score
                     if splash_score == 0:
-                        song_score += 3
+                        score_list.append(1)
                     elif splash_score < 2:
-                        song_score += 2
+                        score_list.append(.67)
                     elif splash_score < 3:
-                        song_score += 1
+                        score_list.append(.33)
+                    else:
+                        score_list.append(0)
                     #calculate intro prediction score
                     if intro_prediction == 1:
-                        song_score += 3
-                    elif intro_prediction > 0.99999:
-                        song_score += 2
-                    elif intro_prediction > 0.00001:
-                        song_score += 1
+                        score_list.append(1)
+                    elif intro_prediction > 0.9:
+                        score_list.append(.75)
+                    elif intro_prediction > 0:
+                        score_list.append(.5)
+                    else:
+                        score_list.append(0)
                     #check time since last super verified song and penalize if it was too recent
                     if last_song_time:
-                        if (line_dict['onset time'] * 0.023219814 - last_song_time > 3):
-                            pass
+                        if (line_dict['onset time'] * 0.023219814 - last_song_time > 7):
+                            score_list.append(.5)
+                        elif (line_dict['onset time'] * 0.023219814 - last_song_time > 3):
+                            score_list.append(1)
                         elif (line_dict['onset time'] * 0.023219814 - last_song_time > 2):
-                            song_score -= 2
+                            score_list.append(.25)
                         else:
-                            song_score -= 3
-                    if song_score > 2:
+                            score_list.append(0)
+                    else:
+                        score_list.append(.5)
+                    weight_sum = 0
+                    for m in range(len(score_list)):
+                        weight_sum += weight_list[m] 
+                        intro_song_score += weight_list[m] * score_list[m]
+                    intro_song_score /= weight_sum
+                
+                    if intro_song_score > .5:
                         song_prediction = song_predict(data, i, columns, song_model)
+                        print('checking for posts')
                         post_notes = check_for_posts(data, post_threshold, post_onset, i, columns, rows, loud_post_threshold)
-                        if post_notes:
+                        if post_notes: #there are conditions within check_for_posts that return 0 if not fulfilled
                             #calculate post note score
                             loud_score = 0
                             for loudnote in post_notes['loud notes']:
@@ -346,25 +366,33 @@ def h5_to_album_with_models(filename, sample):
                                     loud_score += 1
                             
                             if loud_score > 2:
-                                song_score += 1
+                                score_list.append(1)
                             elif loud_score > 1:
-                                pass
+                                score_list.append(.75)
                             elif loud_score > 0:
-                                song_score -= 2
+                                score_list.append(.25)
                             else:
-                                song_score -= 4
+                                score_list.append(0)
 
                             #calculate song_prediction score
 
                             if song_prediction == 1:
-                                song_score += 4
-                            elif song_prediction > 0.99999:
-                                song_score += 3
-                            elif song_prediction > 0.00001:
-                                song_score += 2
-                            if song_score > 2:
+                                score_list.append(1)
+                            elif song_prediction > 0.9:
+                                score_list.append(.67)
+                            elif song_prediction > 0:
+                                score_list.append(.5)
+                            else:
+                                score_list.append(0)
+                            weight_sum = 0
+                            for m in range(len(score_list)):
+                                weight_sum += weight_list[m] 
+                                song_score += weight_list[m] * score_list[m]
+                            song_score /= weight_sum
+
+                            if song_score > .2 and not ((score_list[0] + score_list[1] + score_list[2] == 3) and (score_list[3] + score_list[4] + score_list[5] < .3)):
                                 line_dict['status'] = 'unverified'
-                                if song_score > 7:
+                                if song_score > .5:
                                     line_dict['status'] = 'verified'
                                     if check_higher_intros and (i < columns - 70):
                                         pop_song = song_album.pop()
@@ -372,12 +400,12 @@ def h5_to_album_with_models(filename, sample):
                                         delete_song_png(last_line_dict)
                                         print(f'popping song at {pop_song["intro time"]}')
                             #cut the song out and add it to album
-                                if song_score > 7 or not check_higher_intros:
-                                    print(f'row: {j}, time: {i * 0.023219814}---{line_dict["status"]}---total score: {song_score}, intro score: {line_dict["mean db"]}, splash score: {splash_score}, intro prediction: {intro_prediction}, song prediction: {song_prediction}')
-                                    song_album.append(add_song_to_album(data, j, rows, i, columns, post_notes, line_dict, song_score, vertical_splash = False))
+                                if song_score > .5 or not check_higher_intros:
+                                    print(f'row: {j}, time: {i * 0.023219814}---{line_dict["status"]}---total score: {song_score}, score list: {score_list}, intro mean: {line_dict["mean db"]}, splash score: {splash_score}, intro prediction: {intro_prediction}, song prediction: {song_prediction}')
+                                    song_album.append(add_song_to_album(data, j, rows, i, columns, post_notes, line_dict, song_score, score_list, vertical_splash = False))
                                     save_intro_png(data, i, columns, line_dict)
                                     save_song_png(data, i, columns, line_dict)
-                                    if song_score > 11:
+                                    if song_score > .8:
                                         last_song_time = line_dict['onset time'] * 0.023219814
                                 # since it has been verified jump a song width and continue on
                                     if song_album[-1]['status'] == 'verified':
@@ -395,8 +423,7 @@ def h5_to_album_with_models(filename, sample):
                     else:
                         song_prediction = song_predict(data, i, columns, song_model)
                         if song_prediction < 0.00001:
-                            print('jumping ahead')
-                            i += 2
+                            print(f'jumping ahead at {i * 0.023219814} because score: {intro_song_score}, score_list: {score_list}')
                             break
             j += 5
         if check_higher_intros:            
@@ -536,7 +563,7 @@ def h5_to_album_with_only_models(filename, sample):
         song_prediction = song_predict(data, i, columns, song_model)
         if song_prediction > 0.9:      
             print(f'time: {i * 0.023219814}, song prediction: {song_prediction}')
-            song_album.append(add_song_to_album(data, 1, rows, i, columns, {'soft notes': [[0, 0, 0, 0]], 'loud notes': [[0, 0, 0, 0]]}, {'onset time': i, 'onset time': i, 'onset freq': 0, 'length': 0, 'line values': [0], 'status': 'verified'}, 0, vertical_splash = False))
+            song_album.append(add_song_to_album(data, 1, rows, i, columns, {'soft notes': [[0, 0, 0, 0]], 'loud notes': [[0, 0, 0, 0]]}, {'onset time': i, 'onset time': i, 'onset freq': 0, 'length': 0, 'line values': [0], 'status': 'verified'}, 0, [0], vertical_splash = False))
             save_song_png(data, i, columns, {'onset time': i, 'status': 'verified'})
             i += 70
             continue
@@ -750,7 +777,7 @@ def make_ST_album(array, combo_df, folder: string, length: float):
 
 #makes the first pass df with both verified and unverified songs, sorted by intro note onset time
 def save_df_verified(song_album, dfname):
-    datadict = {'intro column': [], 'intro time': [], 'action': [], 'intro freq': [], 'status': [], 'song score': [],'intro length': [], 'intro values': [], 'post size': [], 'soft locs': [], 'loud locs':[]}
+    datadict = {'intro column': [], 'intro time': [], 'action': [], 'intro freq': [], 'status': [], 'song score': [], 'score list': [], 'intro length': [], 'intro values': [], 'post size': [], 'soft locs': [], 'loud locs':[]}
 
     for entry in song_album:
         datadict['intro column'].append(entry['intro column'])
@@ -759,6 +786,7 @@ def save_df_verified(song_album, dfname):
         datadict['status'].append(entry['status'])
         datadict['action'].append('')
         datadict['song score'].append(entry['song score'])
+        datadict['score list'].append(entry['score list'])
         datadict['intro length'].append(entry['intro length'])
         datadict['intro values'].append(entry['intro values'])
         datadict['soft locs'].append(''.join(','.join(map(str, entry['soft notes']))))
@@ -988,7 +1016,7 @@ def check_for_three_vertical_splash(array, row, column, rows, splash_range, mean
     return score
 
 #this is where song status is checked and songs are sliced and formatted into the album
-def add_song_to_album(array, row, rows, column, columns, post_notes, line_dict, song_score, vertical_splash):
+def add_song_to_album(array, row, rows, column, columns, post_notes, line_dict, song_score, score_list, vertical_splash):
     if (line_dict['status'] == 'verified'): 
         label = 'verified'
         # a song has been identified and is now added to an array
@@ -1006,7 +1034,7 @@ def add_song_to_album(array, row, rows, column, columns, post_notes, line_dict, 
         zero_array[:,:-col_diff] = new_array
         new_array = zero_array
     # store the song
-    return {"intro column": line_dict['onset time'], "intro time": '{:.2f}'.format(round((line_dict['onset time']) * 0.023219814, 2)), "intro freq": line_dict['onset freq'], "song score": song_score, "intro length":line_dict['length'], "intro values":line_dict['line values'], "array": new_array, "status": label, "soft notes": post_notes['soft notes'], "loud notes": post_notes['loud notes']}
+    return {"intro column": line_dict['onset time'], "intro time": '{:.2f}'.format(round((line_dict['onset time']) * 0.023219814, 2)), "intro freq": line_dict['onset freq'], "song score": song_score, "score list": score_list, "intro length":line_dict['length'], "intro values":line_dict['line values'], "array": new_array, "status": label, "soft notes": post_notes['soft notes'], "loud notes": post_notes['loud notes']}
 
                                 # FUNCTIONS FOR SAVING OR DISPLAYING SPECTROGRAMS
 
@@ -1542,7 +1570,7 @@ def create_song_album_from_df(dicty_list, filename: string):
                             post_notes = check_for_posts(data, post_threshold, post_onset, i, columns, rows, loud_post_threshold)
                             #cut the song out and add it to album
                             if post_notes:
-                                song_album.append(add_song_to_album(data, j, rows, i, columns, post_notes, line_dict, song_score=100, vertical_splash=False))
+                                song_album.append(add_song_to_album(data, j, rows, i, columns, post_notes, line_dict, song_score=100, score_list=[0], vertical_splash=False))
                                 print('added a new song to the song album!')
                                 i += 70
                                 break
@@ -2058,12 +2086,12 @@ def check_prob_dist():
 # first_pass_sample() # this grabs a little sample of the data to inspect
 # #creates df.csv and folder of prospective spectrograms. delete rows and make changes to intro column in df.csv before second pass. Takes ~2min
 
-# first_pass()
+first_pass()
 
 
 
 # #creates new folder of spectrograms and new_df.csv. Then it compares songs, assigns categories, creates images sorted by ST, and creates master sheet. Takes ~2.5min
-second_pass()
+# second_pass()
 
 # categorize()
 
