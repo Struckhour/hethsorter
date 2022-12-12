@@ -29,16 +29,15 @@ color_cycle = cycle(plt.rcParams["axes.prop_cycle"].by_key()["color"])
 
 
     # VARIABLES
-recording_name = 'A-songs-HERMIT5_20220607_044200'
+recording_name = 'A-songs-HERMIT1_20220728_092403'
 directory = recording_name + '/'
-filename = 'A-songs-HERMIT5_20220607_044200-10m-20m'
+filename = 'A-songs-HERMIT1_20220728_092403-30m-40m'
 
 intro_max = -30
-verification_buffer = 1 #lines with an intro max that is this many dbs below intro_max will be in unverified: 10 seems good. keep in mind line values (including max) must exceed intro_threshold. verification buffer will not capture soft intro notes. low intro_onset and low intro_threshold combined with a large verification buffer will.
 intro_onset = intro_max - 10
 intro_threshold = intro_max - 10
 intro_min_length = 8
-intro_max_length = 17
+intro_max_length = 25
 intro_jumps = 1
 diff_threshold = 25 #this is how far one value on a thread can jump up or down to the next value
 splash_threshold = 20 #how far below the average intro note value does the outer cloud need to be? If the cloud is above this, it trips the splash function
@@ -124,15 +123,15 @@ def test_wav_for_noise(folder, wave):
     print(f'{wave} mean median: {np.mean(median_list)}, min median: {np.min(median_list)}')
     noise_level = 'A'
     found_string = 'blank'
-    if np.mean(median_list) > -35 and np.min(median_list) > -35:
+    if np.mean(median_list) > -40 and np.min(median_list) > -40:
         noise_level = 'F'
-    elif np.mean(median_list) > -35 and np.min(median_list) > -45:
+    elif np.mean(median_list) > -40 and np.min(median_list) > -50:
         noise_level = 'E'
-    elif np.mean(median_list) > -35:
+    elif np.mean(median_list) > -40:
         noise_level = 'D'
-    elif np.mean(median_list) > -45 and np.min(median_list) > -45:
+    elif np.mean(median_list) > -50 and np.min(median_list) > -50:
         noise_level = 'C'
-    elif np.mean(median_list) > -45:
+    elif np.mean(median_list) > -50:
         noise_level = 'B'
     if found_song:
         found_string = 'songs'
@@ -147,12 +146,13 @@ def check_folder_for_noise(folder):
     big_median_list = []
     max_median_list = []
     for wave in os.listdir(folder):
-        median_list = test_wav_for_noise(folder, wave)
-        big_median_list.append(np.mean(median_list))
-        max_median_list.append(np.min(median_list))
+        if ('.wav' in wave) and (not (('A-' in wave) or ('B-' in wave) or ('C-' in wave) or ('D-' in wave) or ('E-' in wave) or ('F-' in wave)) and (os.path.getsize(os.path.join(folder, wave)) > 1000000)):
+            median_list = test_wav_for_noise(folder, wave)
+            big_median_list.append(np.mean(median_list))
+            max_median_list.append(np.min(median_list))
     # flat_list = [item for sublist in big_median_list for item in sublist]
-    plt.hist(max_median_list, bins=20, density=True)
-    plt.show()
+    # plt.hist(max_median_list, bins=20, density=True)
+    # plt.show()
 
 
 
@@ -304,17 +304,28 @@ def h5_to_album_with_models(filename, sample):
             intro_song_score = 0
             if (data[j][i] > intro_onset):
                 line_dict = check_for_thread_strict(data, j, i, rows, columns, intro_threshold, intro_max, intro_min_length, intro_max_length)
-                if line_dict['length'] > intro_min_length:
-                    weight_list = [1, 2, 2, 3, 3, 4] #weights: [mean_intro, splash, intro predict, timing, loudnotes, song predict] 
+                line_fade = True
+                if line_dict['length'] == intro_max_length:
+                    last_mean = -80
+                    for cut in range(len(line_dict['line values'])-5):
+                        now_mean = np.mean(line_dict['line values'][cut: cut+5])
+                        if now_mean > last_mean:
+                            last_mean = now_mean
+                        if (last_mean - now_mean) > 15:
+                            break
+                    else:
+                        line_fade = False
+                if (line_dict['length'] > intro_min_length) and (line_fade):
+                    weight_list = [1, 2, 2, 3, 3, 12] #weights: [mean_intro, splash, intro predict, timing, loudnotes, song predict] 
                     score_list = []
                     splash_score = check_for_three_vertical_splash(data, j, i, rows, 30, line_dict['mean db'], line_dict['max db'], line_dict['index values'], intro_min_length)
                     intro_prediction = intro_predict(data, i, columns, line_dict, intro_model)
                     #calculate line amplitude score
-                    if line_dict['mean db'] > intro_max:
+                    if line_dict['mean db'] > intro_max + 5:
                         score_list.append(1)
-                    elif line_dict['mean db'] > intro_max -5:
+                    elif line_dict['mean db'] > intro_max:
                         score_list.append(.67)
-                    elif line_dict['mean db'] > intro_max - 10:
+                    elif line_dict['mean db'] > intro_max - 5:
                         score_list.append(.33)
                     else:
                         score_list.append(0)
@@ -356,7 +367,7 @@ def h5_to_album_with_models(filename, sample):
                 
                     if intro_song_score > .5:
                         song_prediction = song_predict(data, i, columns, song_model)
-                        print('checking for posts')
+                        # print('checking for posts')
                         post_notes = check_for_posts(data, post_threshold, post_onset, i, columns, rows, loud_post_threshold)
                         if post_notes: #there are conditions within check_for_posts that return 0 if not fulfilled
                             #calculate post note score
@@ -390,7 +401,7 @@ def h5_to_album_with_models(filename, sample):
                                 song_score += weight_list[m] * score_list[m]
                             song_score /= weight_sum
 
-                            if song_score > .2 and not ((score_list[0] + score_list[1] + score_list[2] == 3) and (score_list[3] + score_list[4] + score_list[5] < .3)):
+                            if song_score > .2 and not ((score_list[0] + score_list[1] + score_list[2] == 3) and (score_list[4] + score_list[5] < .3)):
                                 line_dict['status'] = 'unverified'
                                 if song_score > .5:
                                     line_dict['status'] = 'verified'
@@ -407,8 +418,9 @@ def h5_to_album_with_models(filename, sample):
                                     save_song_png(data, i, columns, line_dict)
                                     if song_score > .8:
                                         last_song_time = line_dict['onset time'] * 0.023219814
+                                        i += 110
                                 # since it has been verified jump a song width and continue on
-                                    if song_album[-1]['status'] == 'verified':
+                                    elif song_album[-1]['status'] == 'verified':
                                         i += 70
                                         break
                                     else:
@@ -417,13 +429,13 @@ def h5_to_album_with_models(filename, sample):
                             else:
                                 pass
                         else:
-                            print(f'row: {j}, time: {i * 0.023219814}, did not pass post note tests')
+                            # print(f'row: {j}, time: {i * 0.023219814}, did not pass post note tests')
                             i += 1
                             break
                     else:
                         song_prediction = song_predict(data, i, columns, song_model)
                         if song_prediction < 0.00001:
-                            print(f'jumping ahead at {i * 0.023219814} because score: {intro_song_score}, score_list: {score_list}')
+                            # print(f'jumping ahead at {i * 0.023219814} because score: {intro_song_score}, score_list: {score_list}')
                             break
             j += 5
         if check_higher_intros:            
@@ -885,17 +897,13 @@ def check_for_thread_strict(array, row, column, rows, columns, threshold, max_th
                 length += 1
             else:
                 #end of the line, not max length, so check how it qualifies
-                if (length >= min_length) and (max(line_values) > max_threshold):
+                if (length >= min_length) and (np.mean(line_values) > max_threshold):
                     return {'length': length, 'onset time': column, 'onset freq': start_row, 'line values': line_values, 'max db': max(line_values), 'mean db': np.mean(line_values), 'mean freq': round(np.mean(line_freqs), 2), 'status': 'verified', 'max index': line_values.index(max(line_values)), 'index values': index_values}
-                elif (length >= min_length) and (max(line_values) > max_threshold - verification_buffer):
-                    return {'length': length, 'onset time': column, 'onset freq': start_row, 'line values': line_values, 'max db': max(line_values), 'mean db': np.mean(line_values), 'mean freq': round(np.mean(line_freqs), 2), 'status': 'unverified', 'max index': line_values.index(max(line_values)), 'index values': index_values}
                 else:
                     return {'length': 0}
         #while loop ended, so the line is max length. now check where its max value qualifies
-        if max(line_values) > max_threshold:
+        if np.mean(line_values) > max_threshold:
             return {'length': length, 'onset time': column, 'onset freq': start_row, 'line values': line_values, 'max db': max(line_values), 'mean db': np.mean(line_values), 'mean freq': round(np.mean(line_freqs), 2), 'status': 'verified', 'max index': line_values.index(max(line_values)), 'index values': index_values}
-        elif max(line_values) > max_threshold - verification_buffer:
-            return {'length': length, 'onset time': column, 'onset freq': start_row, 'line values': line_values, 'max db': max(line_values), 'mean db': np.mean(line_values), 'mean freq': round(np.mean(line_freqs), 2), 'status': 'unverified', 'max index': line_values.index(max(line_values)), 'index values': index_values}
         else:
             return {'length': 0}
     else:
@@ -2035,8 +2043,8 @@ def load_variables(array):
     global post_threshold
     global loud_post_threshold
 
-    intro_threshold = np.median(array) + np.std(array) * (0.75 + (abs(-45 - np.median(array))/20))
-    intro_max = intro_threshold + 15
+    intro_threshold = np.median(array) + np.std(array) * (1 + (abs(-45 - np.median(array))/20))
+    intro_max = intro_threshold + 10
     intro_onset = intro_threshold
 
     post_max = intro_max - 5
@@ -2086,11 +2094,12 @@ def check_prob_dist():
 # first_pass_sample() # this grabs a little sample of the data to inspect
 # #creates df.csv and folder of prospective spectrograms. delete rows and make changes to intro column in df.csv before second pass. Takes ~2min
 
-first_pass()
+# first_pass()
 
 
 
 # #creates new folder of spectrograms and new_df.csv. Then it compares songs, assigns categories, creates images sorted by ST, and creates master sheet. Takes ~2.5min
+
 # second_pass()
 
 # categorize()
@@ -2133,4 +2142,7 @@ first_pass()
 
 # reset_waves_in_folder(recording_name)
 
-# check_folder_for_noise(recording_name)
+for foldy in os.listdir('D:\HETH 2022'):
+    if 'Log2' not in foldy and 'Glebe1' not in foldy and 'Frye5' not in foldy:
+        path = os.path.join('D:\HETH 2022', foldy)
+        check_folder_for_noise(path)
