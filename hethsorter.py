@@ -29,9 +29,9 @@ color_cycle = cycle(plt.rcParams["axes.prop_cycle"].by_key()["color"])
 
 
     # VARIABLES
-recording_name = 'A-songs-HERMIT1_20220728_092403'
+recording_name = 'B-songs-Frye8-HERMIT1_20220720_050000'
 directory = recording_name + '/'
-filename = 'A-songs-HERMIT1_20220728_092403-30m-40m'
+filename = 'B-songs-Frye8-HERMIT1_20220720_050000-40m-50m'
 
 intro_max = -30
 intro_onset = intro_max - 10
@@ -287,7 +287,7 @@ def h5_to_album_with_models(filename, sample):
     #if this is a sample, it only goes to 2000 columns ~46 seconds. if not, it does the whole recording.
     if sample:
         i = 0
-        columns = 1000
+        columns = 2000
     else:
         columns = len(data[0])
     print(rows)
@@ -311,12 +311,12 @@ def h5_to_album_with_models(filename, sample):
                         now_mean = np.mean(line_dict['line values'][cut: cut+5])
                         if now_mean > last_mean:
                             last_mean = now_mean
-                        if (last_mean - now_mean) > 15:
+                        if (last_mean - now_mean) > 8:
                             break
                     else:
                         line_fade = False
                 if (line_dict['length'] > intro_min_length) and (line_fade):
-                    weight_list = [1, 2, 2, 3, 3, 12] #weights: [mean_intro, splash, intro predict, timing, loudnotes, song predict] 
+                    weight_list = [1, 2, 2, 3, 3, 7] #weights: [mean_intro, splash, intro predict, timing, loudnotes, song predict] 
                     score_list = []
                     splash_score = check_for_three_vertical_splash(data, j, i, rows, 30, line_dict['mean db'], line_dict['max db'], line_dict['index values'], intro_min_length)
                     intro_prediction = intro_predict(data, i, columns, line_dict, intro_model)
@@ -880,7 +880,7 @@ def check_for_thread_strict(array, row, column, rows, columns, threshold, max_th
     start_row = row
     prev_value = array[row, column]
     line_values.append(prev_value)
-    if (row > (2*stop_length)) and (row < (rows - 2*stop_length)) and (column < columns - stop_length):
+    if (row < (rows - 2*stop_length)) and (column < columns - stop_length):
         while (length < stop_length):
             next_value = -80
             new_row = 0
@@ -895,6 +895,8 @@ def check_for_thread_strict(array, row, column, rows, columns, threshold, max_th
                 row = new_row
                 index_values.append(new_row)
                 length += 1
+                if row < 5:
+                    return {'length': 0}
             else:
                 #end of the line, not max length, so check how it qualifies
                 if (length >= min_length) and (np.mean(line_values) > max_threshold):
@@ -2015,8 +2017,9 @@ def final_adjustments_from_template():
             
             
 
-
-# seg = make_segment(data, 89, 5)
+# with h5py.File(directory + filename + '.h5', 'r') as hf:
+#     data = hf[filename + '_dataset'][:]
+# seg = make_segment(data, 43, 1.5)
 # display_spect(seg)
 
     # SAVE DF TO CSV
@@ -2043,8 +2046,9 @@ def load_variables(array):
     global post_threshold
     global loud_post_threshold
 
-    intro_threshold = np.median(array) + np.std(array) * (1 + (abs(-45 - np.median(array))/20))
-    intro_max = intro_threshold + 10
+    intro_threshold = np.median(array) + np.std(array) * (.75 + (abs(-45 - np.median(array))/20))
+    print(f'intro threshold is {intro_threshold}')
+    intro_max = intro_threshold + 5
     intro_onset = intro_threshold
 
     post_max = intro_max - 5
@@ -2081,39 +2085,6 @@ def check_prob_dist():
 
 # check_prob_dist()
 
-# EXECUTE CODE BELOW HERE FOR INITIAL 10MIN OF A BIRD
-
-#fourier transform, stores h5 file, creates 20sec spectrograms. Have a look at thresholds. Takes ~40sec
-# cut_wav_into_ten_minute_wavs()
-# set_up('folder') 
-# set_up('file') 
-# slice_a_wav(155)
-
-# check_the_numbers(334, 2)
-
-# first_pass_sample() # this grabs a little sample of the data to inspect
-# #creates df.csv and folder of prospective spectrograms. delete rows and make changes to intro column in df.csv before second pass. Takes ~2min
-
-# first_pass()
-
-
-
-# #creates new folder of spectrograms and new_df.csv. Then it compares songs, assigns categories, creates images sorted by ST, and creates master sheet. Takes ~2.5min
-
-# second_pass()
-
-# categorize()
-
-# #input any final ST changes such as "all Cs should be Bs". Creates new folder and new master sheet. Takes ~50sec
-# final_adjustments() 
-
-
-
-
-
-
-
-
 # EXECUTE CODE BELOW HERE FOR LATER RECORDINGS OF A BIRD
 #fourier transform, stores h5 file, creates 20sec spectrograms. Have a look at thresholds. takes ~51sec
 # slice_a_wav(220)
@@ -2142,7 +2113,36 @@ def check_prob_dist():
 
 # reset_waves_in_folder(recording_name)
 
-for foldy in os.listdir('D:\HETH 2022'):
-    if 'Log2' not in foldy and 'Glebe1' not in foldy and 'Frye5' not in foldy:
-        path = os.path.join('D:\HETH 2022', foldy)
-        check_folder_for_noise(path)
+# for foldy in os.listdir('D:\HETH 2022'):
+#     if 'Log2' not in foldy and 'Glebe1' not in foldy and 'Frye5' not in foldy:
+#         path = os.path.join('D:\HETH 2022', foldy)
+#         check_folder_for_noise(path)
+
+
+# EXECUTE CODE BELOW HERE FOR INITIAL 10MIN OF A BIRD
+
+# -----------------------------------------------------------------------
+
+#fourier transform, stores h5 file, creates 20sec spectrograms. Have a look at thresholds. Takes ~40sec
+
+# cut_wav_into_ten_minute_wavs()
+# set_up('folder') 
+ 
+# slice_a_wav(180)
+# set_up('file')
+
+# check_the_numbers(42.5, 2)
+
+# first_pass_sample() # this grabs a little sample of the data to inspect
+# #creates df.csv and folder of prospective spectrograms. delete rows and make changes to intro column in df.csv before second pass. Takes ~2min
+
+# first_pass()
+
+# #creates new folder of spectrograms and new_df.csv. Then it compares songs, assigns categories, creates images sorted by ST, and creates master sheet. Takes ~2.5min
+
+second_pass()
+
+# categorize()
+
+# #input any final ST changes such as "all Cs should be Bs". Creates new folder and new master sheet. Takes ~50sec
+# final_adjustments() 
