@@ -29,9 +29,9 @@ color_cycle = cycle(plt.rcParams["axes.prop_cycle"].by_key()["color"])
 
 
     # VARIABLES
-recording_name = 'B-songs-Frye8-HERMIT1_20220720_050000'
+recording_name = 'A-songs-Salmon1-HERMIT1_20220507_050900-s'
 directory = recording_name + '/'
-filename = 'B-songs-Frye8-HERMIT1_20220720_050000-40m-50m'
+filename = 'A-songs-Salmon1-HERMIT1_20220507_050900-s-20m-30m'
 
 intro_max = -30
 intro_onset = intro_max - 10
@@ -49,7 +49,7 @@ post_threshold = post_max - 10
 post_min_length = 5
 post_max_length = 15
 post_jumps = 1
-loud_post_threshold = post_max + 10
+loud_post_threshold = post_max + 20
 
 
 
@@ -94,8 +94,8 @@ def ten_sec_fourier():
     return S_db
 
 def load_models():
-    intro_model = tf.keras.models.load_model('dec8-93-intro-colabmodel.model')
-    song_model = tf.keras.models.load_model('dec8-91-colabmodel.model')
+    intro_model = tf.keras.models.load_model('dec13-88-intros-colabmodel.model')
+    song_model = tf.keras.models.load_model('dec13-93-song-colabmodel.model')
     return intro_model, song_model
 
 def test_wav_for_noise(folder, wave):
@@ -340,11 +340,11 @@ def h5_to_album_with_models(filename, sample):
                         score_list.append(0)
                     #calculate intro prediction score
                     if intro_prediction == 1:
-                        score_list.append(1)
-                    elif intro_prediction > 0.9:
                         score_list.append(.75)
-                    elif intro_prediction > 0:
+                    elif intro_prediction > 0.9:
                         score_list.append(.5)
+                    elif intro_prediction > 0:
+                        score_list.append(.25)
                     else:
                         score_list.append(0)
                     #check time since last super verified song and penalize if it was too recent
@@ -681,6 +681,9 @@ def intro_predict(array, column, columns, line_dict, model):
         intro_array = array[bot_row:top_row, column:column+19].copy()
     intro_array = (intro_array+80)*(255/80)
     intro_array = intro_array.reshape(-1, 59, 19, 1)
+    x_min = intro_array.min(axis=(1, 2), keepdims=True)
+    x_max = intro_array.max(axis=(1, 2), keepdims=True)
+    intro_array = (intro_array - x_min)/(x_max-x_min)
     prediction = model.predict([intro_array], verbose=0)
     return prediction[0][0]
 
@@ -698,6 +701,9 @@ def song_predict(array, column, columns, model):
         song_array = array[:, column:column+69].copy()
     song_array = (song_array+80)*(255/80)
     song_array = song_array.reshape(-1, 623, 69, 1)
+    x_min = song_array.min(axis=(1, 2), keepdims=True)
+    x_max = song_array.max(axis=(1, 2), keepdims=True)
+    song_array = (song_array - x_min)/(x_max-x_min)
     prediction = model.predict([song_array], verbose=0)
     return prediction[0][0]
 
@@ -1561,13 +1567,18 @@ def create_song_album_from_df(dicty_list, filename: string):
     #     shutil.rmtree(filename)
     # os.mkdir(filename)
     rows = len(data)
+    last_v = -100
     for dicty in dicty_list:
+        if dicty['intro column'] < last_v + 70:
+            dicty['action'] = 'da'
         start_string = '{:.2f}'.format(dicty['intro time'])
         start_time = start_string.replace('.', '-')
-        if dicty['action'] == 'a':
+        if (dicty['action'] == 'a') or (dicty['action'].isnumeric()):
             dicty['status'] = 'unverified'
             columns = len(data[0])
             i = dicty['intro column']
+            if dicty['action'].isnumeric():
+                i = dicty['intro column'] + int(dicty['action'])
             while i < (dicty['intro column'] + 10) and (i < columns -1):
                 j = 0
                 while j < rows:
@@ -1601,6 +1612,7 @@ def create_song_album_from_df(dicty_list, filename: string):
                 os.rename(directory + filename + '/training_songs/positives/' + start_time + '-' + filename + '.png', directory + filename + '/training_songs/negatives/' + start_time + '-' + filename + '.png')
 
         if dicty['action'] == 'v':
+            last_v = dicty['intro column']
             #move png up a folder and change its status
             song_name = '{:.2f}'.format(dicty['intro time'])
             song_name = song_name.replace('.', '-')
@@ -2126,9 +2138,9 @@ def check_prob_dist():
 #fourier transform, stores h5 file, creates 20sec spectrograms. Have a look at thresholds. Takes ~40sec
 
 # cut_wav_into_ten_minute_wavs()
-# set_up('folder') 
+# set_up('folder')
  
-# slice_a_wav(180)
+# slice_a_wav(68)
 # set_up('file')
 
 # check_the_numbers(42.5, 2)
