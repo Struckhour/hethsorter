@@ -29,9 +29,9 @@ color_cycle = cycle(plt.rcParams["axes.prop_cycle"].by_key()["color"])
 
 
     # VARIABLES
-recording_name = 'A-songs-Salmon1-HERMIT1_20220507_050900-s'
+recording_name = 'A-songs-Log3-HERMIT4_20220502_063611-s'
 directory = recording_name + '/'
-filename = 'A-songs-Salmon1-HERMIT1_20220507_050900-s-20m-30m'
+filename = 'A-songs-Log3-HERMIT4_20220502_063611-s-0m-10m-60s-end-slice'
 
 intro_max = -30
 intro_onset = intro_max - 10
@@ -55,6 +55,8 @@ loud_post_threshold = post_max + 20
 
 clumping_threshold = 0.1 #this is the threshold for combining ST categories based on a ratio of average match scores
 match_threshold = 0.6 #this is the matchscore cutoff for deciding whether a ST gets its own category
+
+time_converter = 0.023219814
 
     # FUNCTIONS
 
@@ -214,7 +216,7 @@ def reset_waves_in_folder(folder):
 #             if (data[j][i] > intro_onset):
 #                 line_dict = check_for_thread_strict(data, j, i, rows, columns, intro_threshold, intro_max, intro_min_length, intro_max_length)
 #                 if line_dict['length'] > intro_min_length:
-#                     vertical_splash = check_for_three_vertical_splash(data, j, i, rows, 30, line_dict['mean db'], line_dict['max db'], line_dict['index values'], intro_min_length)
+#                     vertical_splash = check_for_three_vertical_splash(data, j, i, rows, 30, line_dict['mean db'], line_dict['max db'], line_dict['line values'], line_dict['index values'], intro_min_length)
 #                     if (not check_higher_intros) or (check_higher_intros and not vertical_splash and (line_dict['status'] == 'verified')):
 #                         post_notes = check_for_posts(data, post_threshold, post_onset, i, columns, rows, loud_post_threshold)
 #                         if post_notes:
@@ -286,8 +288,8 @@ def h5_to_album_with_models(filename, sample):
     rows = len(data)
     #if this is a sample, it only goes to 2000 columns ~46 seconds. if not, it does the whole recording.
     if sample:
-        i = 0
-        columns = 2000
+        i = int(333 / time_converter)
+        columns = int(338 / time_converter) + int(10 / time_converter)
     else:
         columns = len(data[0])
     print(rows)
@@ -302,49 +304,67 @@ def h5_to_album_with_models(filename, sample):
                 break
             song_score = 0
             intro_song_score = 0
-            if (data[j][i] > intro_onset):
+            if (data[j][i] > intro_onset) and (data[j][i] > np.median(data[j - 25: j+25, i]) + 10):
+                # print(f'checking for thread at {j}, {i}, {i * time_converter}')
                 line_dict = check_for_thread_strict(data, j, i, rows, columns, intro_threshold, intro_max, intro_min_length, intro_max_length)
                 line_fade = True
                 if line_dict['length'] == intro_max_length:
                     last_mean = -80
                     for cut in range(len(line_dict['line values'])-5):
-                        now_mean = np.mean(line_dict['line values'][cut: cut+5])
-                        if now_mean > last_mean:
-                            last_mean = now_mean
-                        if (last_mean - now_mean) > 8:
+                        highest_mean = np.mean(line_dict['line values'][cut: cut+5])
+                        if highest_mean > last_mean:
+                            last_mean = highest_mean
+                        if (last_mean - highest_mean) > 8:
                             break
                     else:
                         line_fade = False
                 if (line_dict['length'] > intro_min_length) and (line_fade):
-                    weight_list = [1, 2, 2, 3, 3, 7] #weights: [mean_intro, splash, intro predict, timing, loudnotes, song predict] 
+                    weight_list = [1, 2, 2, 2, 3, 7] #weights: [mean_intro, splash, intro predict, timing, loudnotes, song predict] 
                     score_list = []
-                    splash_score = check_for_three_vertical_splash(data, j, i, rows, 30, line_dict['mean db'], line_dict['max db'], line_dict['index values'], intro_min_length)
+                    # print(f'checking splash at {j}, {i * time_converter}')
+                    splash_score = check_for_three_vertical_splash(data, j, i, rows, 45, line_dict['mean db'], line_dict['max db'], line_dict['line values'], line_dict['index values'], intro_min_length)
                     intro_prediction = intro_predict(data, i, columns, line_dict, intro_model)
                     #calculate line amplitude score
-                    if line_dict['mean db'] > intro_max + 5:
-                        score_list.append(1)
-                    elif line_dict['mean db'] > intro_max:
-                        score_list.append(.67)
-                    elif line_dict['mean db'] > intro_max - 5:
-                        score_list.append(.33)
-                    else:
-                        score_list.append(0)
+                    mean_above_threshold = line_dict['mean db'] - intro_threshold + 10
+                    if mean_above_threshold < 0:
+                        mean_above_threshold = 0
+                    line_score = (mean_above_threshold) / 35
+                    if line_score > 1:
+                        line_score = 1
+                    score_list.append(line_score)
+
+                    # if line_dict['mean db'] > intro_threshold + 25:
+                    #     score_list.append(1)
+                    # elif line_dict['mean db'] > intro_threshold + 15:
+                    #     score_list.append(.67)
+                    # elif line_dict['mean db'] > intro_threshold + 10:
+                    #     score_list.append(.33)
+                    # else:
+                    #     score_list.append(0)
                     #calculate line splash score
-                    if splash_score == 0:
-                        score_list.append(1)
-                    elif splash_score < 2:
-                        score_list.append(.67)
-                    elif splash_score < 3:
-                        score_list.append(.33)
-                    else:
-                        score_list.append(0)
+                    
+                    splash_perc = (3 - splash_score) / (3)
+                    if splash_perc < 0:
+                        splash_perc = 0
+                    score_list.append(splash_perc)
+                    
+                    # if splash_score == 0:
+                    #     score_list.append(1)
+                    # elif splash_score < 3:
+                    #     score_list.append(.67)
+                    # elif splash_score < 3:
+                    #     score_list.append(.33)
+                    # else:
+                    #     score_list.append(0)
                     #calculate intro prediction score
-                    if intro_prediction == 1:
+                    if intro_prediction > .99:
                         score_list.append(.75)
                     elif intro_prediction > 0.9:
                         score_list.append(.5)
-                    elif intro_prediction > 0:
+                    elif intro_prediction > 0.5:
                         score_list.append(.25)
+                    elif intro_prediction > 0.1:
+                        score_list.append(.1)
                     else:
                         score_list.append(0)
                     #check time since last super verified song and penalize if it was too recent
@@ -387,12 +407,14 @@ def h5_to_album_with_models(filename, sample):
 
                             #calculate song_prediction score
 
-                            if song_prediction == 1:
+                            if song_prediction > .99:
                                 score_list.append(1)
-                            elif song_prediction > 0.9:
-                                score_list.append(.67)
-                            elif song_prediction > 0:
+                            elif song_prediction > 0.8:
+                                score_list.append(.75)
+                            elif song_prediction > 0.2:
                                 score_list.append(.5)
+                            elif song_prediction > 0.1:
+                                score_list.append(0.25)
                             else:
                                 score_list.append(0)
                             weight_sum = 0
@@ -433,15 +455,14 @@ def h5_to_album_with_models(filename, sample):
                             i += 1
                             break
                     else:
+                        print(f'intro note discarded at {i * 0.023219814} and {j} because {score_list}, mean: {np.mean(line_dict["line values"])}')
                         song_prediction = song_predict(data, i, columns, song_model)
-                        if song_prediction < 0.00001:
-                            # print(f'jumping ahead at {i * 0.023219814} because score: {intro_song_score}, score_list: {score_list}')
+                        if song_prediction < 0.1:
+                            print(f'jumping ahead at {i * 0.023219814} because score: {intro_song_score}, score_list: {score_list}')
                             break
-            j += 5
-        if check_higher_intros:            
-            i += 3
-        else:
-            i += 2
+            j += 5         
+        i += 2
+
     #save a bunch of spectrograms
     print('saving spectrograms...')
     save_images(song_album, filename)
@@ -463,7 +484,7 @@ def look_for_heth(data, intro_model, song_model, decibel_threshold):
             if (data[j][i] > decibel_threshold):
                 line_dict = check_for_thread_strict(data, j, i, rows, columns, decibel_threshold, decibel_threshold + 5, intro_min_length, intro_max_length)
                 if line_dict['length'] > intro_min_length:
-                    splash_score = check_for_three_vertical_splash(data, j, i, rows, 30, line_dict['mean db'], line_dict['max db'], line_dict['index values'], intro_min_length)
+                    splash_score = check_for_three_vertical_splash(data, j, i, rows, 30, line_dict['mean db'], line_dict['max db'], line_dict['line values'], line_dict['index values'], intro_min_length)
                     intro_prediction = intro_predict(data, i, columns, line_dict, intro_model)
                     print(f'mean_db: {line_dict["mean db"]}, splash score: {splash_score}, intro prediction: {intro_prediction}')
                     #calculate line amplitude score
@@ -890,7 +911,7 @@ def check_for_thread_strict(array, row, column, rows, columns, threshold, max_th
         while (length < stop_length):
             next_value = -80
             new_row = 0
-            for i in [0, -1, 1, -2, 2]:
+            for i in [0, -1, 1, -2, 2, -3, 3, -4, 4, -5, 5]:
                 if (array[row + i, column + length] > next_value):
                     next_value = array[row + i, column + length]
                     new_row = row + i
@@ -901,7 +922,7 @@ def check_for_thread_strict(array, row, column, rows, columns, threshold, max_th
                 row = new_row
                 index_values.append(new_row)
                 length += 1
-                if row < 5:
+                if row < 10:
                     return {'length': 0}
             else:
                 #end of the line, not max length, so check how it qualifies
@@ -1005,31 +1026,49 @@ def check_for_vertical_splash(array, row, column, rows, splash_range, mean_db, m
     print(f'At row: {row}, time: {column * 0.023219814}, tripped the splash function')
     return False
 
-def check_for_three_vertical_splash(array, row, column, rows, splash_range, mean_db, max_db, index_list, intro_min_length):
-    score = 0
-    #checks at three places: the beginning, middle, and end
-    column_spots = [0, floor(intro_min_length/2), intro_min_length]
-    for j in column_spots:
-        value_list = []
-        splash_range_internal = splash_range
-        #check if the intro note is too close to top
-        if index_list[j] + splash_range + 10 < rows:
-        #splash up and add one if it hits
-            for i in range(splash_range_internal):
-                value_list.append(array[index_list[j] + 10 + i][column + j])
-            if np.mean(value_list) > (mean_db - splash_threshold):
-                # print(f'at row: {index_list[j]}, column: {column + j} upper splash over threshold ({mean_db - splash_threshold}) with {np.mean(value_list)}')
-                score += 1
-        value_list = []
-        #if the note is so low that you can splash down, return false
-        if index_list[j] - 10 - splash_range > 0:
-        #splash down and add one if it hits
-            for i in range(splash_range_internal):
-                value_list.append(array[index_list[j] - 10 - i][column + j])
-            if np.mean(value_list) > (mean_db - splash_threshold):
-                score += 1
-        
-    return score
+def check_for_three_vertical_splash(array, row, column, rows, splash_range, mean_db, max_db, value_list, index_list, intro_min_length):
+    length = len(index_list)
+    partition = int(length/4)
+    print(f'partition: {partition}..... {index_list}')
+    #upward splash
+    splash_score = 0
+    for count in range(3):
+        if np.max(index_list[count * partition: count * partition + partition]) + splash_range >= rows:
+            return 1.5
+        area_median = np.median(array[np.max(index_list[count * partition: count * partition + partition]) + 15:np.max(index_list[count * partition: count * partition + partition]) + splash_range, column + (count * partition): column + (count * partition) + partition])
+        section_mean = np.mean(value_list[count * partition: count*partition + partition])
+        diff = section_mean - area_median
+        print(f'diff at {np.max(index_list[count * partition: count * partition + partition])}, {(column * 0.023219814):.2f}:__{(section_mean):.2f} - {(area_median):.2f} = {diff:.2f}')
+        if diff > 20:
+            continue
+        elif diff > 15:
+            splash_score += .5
+        elif diff > 12:
+            splash_score += 1
+        elif diff > 8:
+            splash_score += 1.5
+        else:
+            splash_score += 2
+    #downward splash
+    for count in range(3):
+        if np.min(index_list[count * partition: count * partition + partition]) - splash_range <= 0:
+            return 1.5
+        area_median = np.median(array[np.min(index_list[count * partition: count * partition + partition]) - splash_range:np.min(index_list[count * partition: count * partition + partition]) - 15, column + (count * partition): column + (count * partition) + partition])
+        section_mean = np.mean(value_list[count * partition: count*partition + partition])
+        diff = section_mean - area_median
+        print(f'diff at {np.min(index_list[count * partition: count * partition + partition])}, {(column * 0.023219814):.2f}:__{section_mean:.2f} - {area_median:.2f} = {diff:.2f}')
+        if diff > 20:
+            continue
+        elif diff > 15:
+            splash_score += .5
+        elif diff > 12:
+            splash_score += 1
+        elif diff > 8:
+            splash_score += 1.5
+        else:
+            splash_score += 2
+    print(f'splash score: {splash_score}')
+    return splash_score
 
 #this is where song status is checked and songs are sliced and formatted into the album
 def add_song_to_album(array, row, rows, column, columns, post_notes, line_dict, song_score, score_list, vertical_splash):
@@ -2028,11 +2067,11 @@ def final_adjustments_from_template():
 # display_spect(data)
             
             
-
-# with h5py.File(directory + filename + '.h5', 'r') as hf:
-#     data = hf[filename + '_dataset'][:]
-# seg = make_segment(data, 43, 1.5)
-# display_spect(seg)
+def show_a_spectrogram(start, duration):
+    with h5py.File(directory + filename + '.h5', 'r') as hf:
+        data = hf[filename + '_dataset'][:]
+    seg = make_segment(data, start, duration)
+    display_spect(seg)
 
     # SAVE DF TO CSV
 # df = pd.DataFrame(seg)
@@ -2140,19 +2179,20 @@ def check_prob_dist():
 # cut_wav_into_ten_minute_wavs()
 # set_up('folder')
  
-# slice_a_wav(68)
+# slice_a_wav(60)
 # set_up('file')
 
-# check_the_numbers(42.5, 2)
+# check_the_numbers(372.25, 1.5)
+# show_a_spectrogram(216.4, 1.5)
 
 # first_pass_sample() # this grabs a little sample of the data to inspect
 # #creates df.csv and folder of prospective spectrograms. delete rows and make changes to intro column in df.csv before second pass. Takes ~2min
 
-# first_pass()
+first_pass()
 
 # #creates new folder of spectrograms and new_df.csv. Then it compares songs, assigns categories, creates images sorted by ST, and creates master sheet. Takes ~2.5min
 
-second_pass()
+# second_pass()
 
 # categorize()
 
