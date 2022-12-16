@@ -332,31 +332,12 @@ def h5_to_album_with_models(filename, sample):
                     if line_score > 1:
                         line_score = 1
                     score_list.append(line_score)
-
-                    # if line_dict['mean db'] > intro_threshold + 25:
-                    #     score_list.append(1)
-                    # elif line_dict['mean db'] > intro_threshold + 15:
-                    #     score_list.append(.67)
-                    # elif line_dict['mean db'] > intro_threshold + 10:
-                    #     score_list.append(.33)
-                    # else:
-                    #     score_list.append(0)
-                    #calculate line splash score
                     
                     splash_perc = (3 - splash_score) / (3)
                     if splash_perc < 0:
                         splash_perc = 0
                     score_list.append(splash_perc)
                     
-                    # if splash_score == 0:
-                    #     score_list.append(1)
-                    # elif splash_score < 3:
-                    #     score_list.append(.67)
-                    # elif splash_score < 3:
-                    #     score_list.append(.33)
-                    # else:
-                    #     score_list.append(0)
-                    #calculate intro prediction score
                     if intro_prediction > .99:
                         score_list.append(.8)
                     elif intro_prediction > 0.95:
@@ -388,22 +369,29 @@ def h5_to_album_with_models(filename, sample):
                     if intro_song_score > .5:
                         song_prediction = song_predict(data, i, columns, song_model)
                         # print('checking for posts')
+                        post_pool_array = post_pool(data, i, rows, columns, 25, 10)
                         post_notes = check_for_posts(data, post_threshold, post_onset, i, columns, rows, loud_post_threshold)
                         if post_notes: #there are conditions within check_for_posts that return 0 if not fulfilled
                             #calculate post note score
                             loud_score = 0
-                            for loudnote in post_notes['loud notes']:
-                                if loudnote[1] > 10 and loudnote[1] < 40:
-                                    loud_score += 1
+                            loud_score = (np.mean(post_pool_array[:,2:4]) + 65)/10
+                            if loud_score > 1:
+                                loud_score = 1
+                            elif loud_score < 0:
+                                loud_score = 0
+                            score_list.append(loud_score)
+                            # for loudnote in post_notes['loud notes']:
+                            #     if loudnote[1] > 10 and loudnote[1] < 40:
+                            #         loud_score += 1
                             
-                            if loud_score > 2:
-                                score_list.append(1)
-                            elif loud_score > 1:
-                                score_list.append(.75)
-                            elif loud_score > 0:
-                                score_list.append(.25)
-                            else:
-                                score_list.append(0)
+                            # if loud_score > 2:
+                            #     score_list.append(1)
+                            # elif loud_score > 1:
+                            #     score_list.append(.75)
+                            # elif loud_score > 0:
+                            #     score_list.append(.25)
+                            # else:
+                            #     score_list.append(0)
 
                             #calculate song_prediction score
 
@@ -1026,6 +1014,53 @@ def check_for_posts(array, post_thresh:float, post_onset:float, column:int, colu
                 if abs(first_note - second_note) > 100 and abs(first_note - second_note) < 400:
                     return {'soft notes': soft_notes, 'loud notes': loud_notes}
     return False 
+
+
+def post_pool(array, column, rows, columns, cell_height, cell_length):
+    print(f'rows: {len(array)}, cols: {len(array[0])}')
+    column_limit = column + 70
+    row_index = 0
+    post_note_array = []
+    if column + 70 > columns:
+        column_limit = columns
+    while row_index < rows - cell_height:
+        col_index = 0
+        row_values = []
+        while column + col_index <= column_limit - cell_length:
+            row_values.append(np.mean(array[row_index:row_index + cell_height,column + col_index:column + col_index + cell_length]))
+            # print(np.mean(array[row_index:row_index + cell_height,col_index:col_index + cell_length]))
+            col_index += cell_length
+        post_note_array.append(row_values)
+        row_index += cell_height
+    return np.array(post_note_array)
+    
+# with h5py.File(directory + filename + '.h5', 'r') as hf:
+#     data = hf[filename + '_dataset'][:]
+
+# pool_list = []
+# pool_list.append((post_pool(data, 3211, len(data), len(data[0]), 25, 10)))
+# pool_list.append((post_pool(data, 2291, len(data), len(data[0]), 25, 10)))
+# pool_list.append((post_pool(data, 1913, len(data), len(data[0]), 25, 10)))
+# pool_list.append((post_pool(data, 3364, len(data), len(data[0]), 25, 10)))
+# pool_list.append((post_pool(data, 1366, len(data), len(data[0]), 25, 10)))
+
+# for pool in pool_list:
+#     print(np.mean(pool[:,2:4]))
+#     print(np.median(pool[:,2:4]))
+
+# print(pool_array.shape)
+# print(pool_array)
+# fig, ax = plt.subplots(figsize=(15, 7))
+# # img = librosa.display.specshow(array[1], x_axis='time', y_axis=None, sr=22050, ax=ax)
+# img = librosa.display.specshow(pool_array, x_axis=None, y_axis=None, sr=22050, ax=ax)
+# ax.set_title('Spectrogram Example', fontsize=20)
+# fig.colorbar(img, ax=ax, format=f'%0.2f')
+# fig.gca().set_yticks(range(0, 24, 1))
+# fig.gca().set_xticks(range(0, 7, 1))
+# fig.gca().set_ylabel("Row")
+# plt.show()
+
+
 
 def check_for_vertical_splash(array, row, column, rows, splash_range, mean_db, max_db, max_index, index_list):
     value_list = []
@@ -2210,12 +2245,12 @@ def check_prob_dist():
 # set_up('file')
 
 # check_the_numbers(372.25, 1.5)
-show_a_spectrogram(31.6, 1.5)
+# show_a_spectrogram(31.6, 1.5)
 
 # first_pass_sample() # this grabs a little sample of the data to inspect
 # #creates df.csv and folder of prospective spectrograms. delete rows and make changes to intro column in df.csv before second pass. Takes ~2min
 
-# first_pass()
+first_pass()
 
 # #creates new folder of spectrograms and new_df.csv. Then it compares songs, assigns categories, creates images sorted by ST, and creates master sheet. Takes ~2.5min
 
