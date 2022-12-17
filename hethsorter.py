@@ -289,17 +289,17 @@ def h5_to_album_with_models(filename, sample):
     #if this is a sample, it only goes to 2000 columns ~46 seconds. if not, it does the whole recording.
     if sample:
         i = int(0 / time_converter)
-        columns = int(0 / time_converter) + int(160 / time_converter)
+        columns = int(0 / time_converter) + int(20 / time_converter)
     else:
         columns = len(data[0])
     print(rows)
     print(columns)
+    best_song_score = 0
     last_song_time = 0
+    column_count = 0
     while i < (columns):
         j = 15
-        check_higher_intros = False
         while j < 450: #this is 450 because there aren't intro songs above 450...usually????
-            # print(array[j][i])
             if i >= columns:
                 break
             song_score = 0
@@ -375,19 +375,6 @@ def h5_to_album_with_models(filename, sample):
                                 loud_score = 0
                             score_list.append(loud_score)
 
-                            # for loudnote in post_notes['loud notes']:
-                            #     if loudnote[1] > 10 and loudnote[1] < 40:
-                            #         loud_score += 1
-                            
-                            # if loud_score > 2:
-                            #     score_list.append(1)
-                            # elif loud_score > 1:
-                            #     score_list.append(.75)
-                            # elif loud_score > 0:
-                            #     score_list.append(.25)
-                            # else:
-                            #     score_list.append(0)
-
                             #calculate song_prediction score
 
                             if song_prediction > .99:
@@ -410,41 +397,40 @@ def h5_to_album_with_models(filename, sample):
                                 line_dict['status'] = 'unverified'
                                 if song_score > .5:
                                     line_dict['status'] = 'verified'
-                                    if check_higher_intros and (i < columns - 70):
-                                        pop_song = song_album.pop()
-                                        delete_intro_png(last_line_dict)
-                                        delete_song_png(last_line_dict)
-                                        print(f'popping song at {pop_song["intro time"]}')
-                            #cut the song out and add it to album
-                                if song_score > .5 or not check_higher_intros:
+                                if (song_score > best_song_score):
+                                    if best_song_score > 0:
+                                        song_album.pop()
+                                        print(temp_dict)
+                                        print(f'trying to pop song at {temp_dict["onset time"]}')
+                                        delete_intro_png(temp_dict)
+                                        delete_song_png(temp_dict)
+
+                                    best_song_score = song_score
+                                    best_column = i
                                     print(f'row: {j}, time: {i * 0.023219814}---{line_dict["status"]}---total score: {song_score}, score list: {score_list}, intro mean: {line_dict["mean db"]}, splash score: {splash_score}, intro prediction: {intro_prediction}, song prediction: {song_prediction}')
                                     song_album.append(add_song_to_album(data, j, rows, i, columns, post_notes, line_dict, song_score, score_list, vertical_splash = False))
                                     save_intro_png(data, i, columns, line_dict)
                                     save_song_png(data, i, columns, line_dict)
+                                    temp_dict = line_dict.copy()
                                     if song_score > .7:
-                                        last_song_time = line_dict['onset time'] * 0.023219814
-                                        i += 110
-                                # since it has been verified jump a song width and continue on
-                                    elif song_album[-1]['status'] == 'verified':
-                                        i += 70
-                                        break
-                                    else:
-                                        check_higher_intros = True
-                                        last_line_dict = line_dict.copy()
-                            else:
-                                pass
+                                        last_song_time = line_dict['onset time'] * 0.023219814                      
                         else:
                             print(f'row: {j}, time: {i * 0.023219814}, did not pass post note tests')
-                            i += 1
                             break
                     else:
                         print(f'intro note discarded at {i * 0.023219814} and {j} because {score_list}, mean: {np.mean(line_dict["line values"])}')
                         song_prediction = song_predict(data, i, columns, song_model)
                         if song_prediction < 0.1:
                             print(f'jumping ahead at {i * 0.023219814} because score: {intro_song_score}, score_list: {score_list}')
-                            break
-                        
+                            break     
             j += 29         
+        if best_song_score > 0:
+            if column_count >= 10:
+                best_song_score = 0
+                column_count = 0
+                i = best_column + 70
+            else:
+                column_count += 2
         i += 2
 
     #save a bunch of spectrograms
@@ -625,14 +611,20 @@ def save_intro_png(array, column, columns, line_dict):
 def delete_intro_png(line_dict):
     start_string = '{:.2f}'.format((round((line_dict['onset time']) * 0.023219814, 2)))
     start_time = start_string.replace('.', '-')
-    folder = 'training_intros/negatives/'
+    if line_dict['status'] == 'verified':
+        folder = 'training_intros/positives/'
+    else:  
+        folder = 'training_intros/negatives/'
     song_name = directory + filename + '/' + folder + start_time + '-intro-' + filename + '.png'
     os.remove(song_name)
 
 def delete_song_png(line_dict):
     start_string = '{:.2f}'.format((round((line_dict['onset time']) * 0.023219814, 2)))
     start_time = start_string.replace('.', '-')
-    folder = 'training_songs/negatives/'
+    if line_dict['status'] == 'verified':
+        folder = 'training_songs/positives/'
+    else:  
+        folder = 'training_songs/negatives/'
     song_name = directory + filename + '/' + folder + start_time + '-' + filename + '.png'
     os.remove(song_name)
 
@@ -955,7 +947,8 @@ def a_back_line(array, row, column, rows, columns, threshold, stop_length, intro
         else:
             return False
     diff = abs(np.mean(intro_values[:5]) - np.mean(line_values))
-    if diff < 8:
+    #there is a back line if the difference between 5 forward and 5 back is less than 10
+    if diff < 10:
         print(f'back line tripped at row:{row}, column: {column}')
         return True
     else:
@@ -2274,7 +2267,7 @@ def check_prob_dist():
 # set_up('file')
 
 # check_the_numbers(152.6, 1.5)
-show_a_spectrogram(374.4, 1.5)
+show_a_spectrogram(15.6, 1.5)
 
 # first_pass_sample() # this grabs a little sample of the data to inspect
 # #creates df.csv and folder of prospective spectrograms. delete rows and make changes to intro column in df.csv before second pass. Takes ~2min
