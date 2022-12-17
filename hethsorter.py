@@ -31,7 +31,7 @@ color_cycle = cycle(plt.rcParams["axes.prop_cycle"].by_key()["color"])
     # VARIABLES
 recording_name = 'A-songs-Log3-HERMIT4_20220502_063611-s'
 directory = recording_name + '/'
-filename = 'A-songs-Log3-HERMIT4_20220502_063611-s-30m-40m' 
+filename = 'A-songs-Log3-HERMIT4_20220502_063611-s-10m-20m' 
 
 intro_max = -30
 intro_onset = intro_max - 10
@@ -214,7 +214,7 @@ def reset_waves_in_folder(folder):
 #             if i >= columns:
 #                 break
 #             if (data[j][i] > intro_onset):
-#                 line_dict = check_for_thread_strict(data, j, i, rows, columns, intro_threshold, intro_max, intro_min_length, intro_max_length)
+#                 line_dict = check_for_thread_strict(data, j, i, rows, columns, intro_threshold, intro_max, intro_min_length, intro_max_length, 15)
 #                 if line_dict['length'] > intro_min_length:
 #                     vertical_splash = check_for_three_vertical_splash(data, j, i, rows, 30, line_dict['mean db'], line_dict['max db'], line_dict['line values'], line_dict['index values'], intro_min_length)
 #                     if (not check_higher_intros) or (check_higher_intros and not vertical_splash and (line_dict['status'] == 'verified')):
@@ -288,15 +288,15 @@ def h5_to_album_with_models(filename, sample):
     rows = len(data)
     #if this is a sample, it only goes to 2000 columns ~46 seconds. if not, it does the whole recording.
     if sample:
-        i = int(333 / time_converter)
-        columns = int(338 / time_converter) + int(10 / time_converter)
+        i = int(0 / time_converter)
+        columns = int(0 / time_converter) + int(160 / time_converter)
     else:
         columns = len(data[0])
     print(rows)
     print(columns)
     last_song_time = 0
     while i < (columns):
-        j = 0
+        j = 15
         check_higher_intros = False
         while j < 450: #this is 450 because there aren't intro songs above 450...usually????
             # print(array[j][i])
@@ -304,28 +304,19 @@ def h5_to_album_with_models(filename, sample):
                 break
             song_score = 0
             intro_song_score = 0
-            if (data[j][i] > intro_onset) and (data[j][i] > np.median(data[j - 25: j+25, i]) + 10):
-                # print(f'checking for thread at {j}, {i}, {i * time_converter}')
-                line_dict = check_for_thread_strict(data, j, i, rows, columns, intro_threshold, intro_max, intro_min_length, intro_max_length)
-                line_fade = True
-                if line_dict['length'] == intro_max_length:
-                    last_mean = -80
-                    for cut in range(len(line_dict['line values'])-5):
-                        highest_mean = np.mean(line_dict['line values'][cut: cut+5])
-                        if highest_mean > last_mean:
-                            last_mean = highest_mean
-                        if (last_mean - highest_mean) > 8:
-                            break
-                    else:
-                        line_fade = False
-                if (line_dict['length'] > intro_min_length) and (line_fade) and not a_back_line(data, j, i, rows, columns, intro_threshold, 5, line_dict['mean db']):
-                    weight_list = [1, 2, 2, 2, 3, 7] #weights: [mean_intro, splash, intro predict, timing, loudnotes, song predict] 
+            j = j - 15 + np.argmax(data[j - 15: j + 15, i])
+            if (data[j][i] > intro_onset) and ((data[j, i]) > np.median(data[j - 25: j+25, i]) + 10):
+                print(f'checking for thread at {j}, {i}, {i * time_converter}')
+                line_dict = check_for_thread_strict(data, j, i, rows, columns, intro_threshold, intro_max, intro_min_length, intro_max_length, 15)
+                #checking that the line is long enough, it fades off at some point, and does not extend backwards
+                if (line_dict['length'] > intro_min_length) and (line_fade(line_dict['line values'], line_dict['length'])) and (not a_back_line(data, j, i, rows, columns, intro_threshold, 5, line_dict['line values'], 15)):
+                    weight_list = [1, 1.5, 2, 1, 4, 6] #weights: [mean_intro, splash, intro predict, timing, loudnotes, song predict] 
                     score_list = []
                     # print(f'checking splash at {j}, {i * time_converter}')
                     splash_score = check_for_three_vertical_splash(data, j, i, rows, 45, line_dict['mean db'], line_dict['max db'], line_dict['line values'], line_dict['index values'], intro_min_length)
                     intro_prediction = intro_predict(data, i, columns, line_dict, intro_model)
                     #calculate line amplitude score
-                    mean_above_threshold = line_dict['mean db'] - intro_threshold + 10
+                    mean_above_threshold = line_dict['mean db'] - intro_threshold + 15
                     if mean_above_threshold < 0:
                         mean_above_threshold = 0
                     line_score = (mean_above_threshold) / 35
@@ -336,6 +327,8 @@ def h5_to_album_with_models(filename, sample):
                     splash_perc = (3 - splash_score) / (3)
                     if splash_perc < 0:
                         splash_perc = 0
+                    if splash_perc > .6:
+                        splash_perc = .6
                     score_list.append(splash_perc)
                     
                     if intro_prediction > .99:
@@ -366,20 +359,22 @@ def h5_to_album_with_models(filename, sample):
                         intro_song_score += weight_list[m] * score_list[m]
                     intro_song_score /= weight_sum
                 
-                    if intro_song_score > .5:
+                    if intro_song_score > .35:
                         song_prediction = song_predict(data, i, columns, song_model)
                         # print('checking for posts')
-                        post_pool_array = post_pool(data, i, rows, columns, 25, 10)
+                        post_pool_array = post_pool(data, i, rows, columns, 25, 5)
                         post_notes = check_for_posts(data, post_threshold, post_onset, i, columns, rows, loud_post_threshold)
                         if post_notes: #there are conditions within check_for_posts that return 0 if not fulfilled
                             #calculate post note score
                             loud_score = 0
-                            loud_score = (np.mean(post_pool_array[:,2:4]) + 65)/10
+                            loud_score = post_pool_score(post_pool_array, intro_threshold -10)
+                            loud_score = (loud_score - 3) /10
                             if loud_score > 1:
                                 loud_score = 1
                             elif loud_score < 0:
                                 loud_score = 0
                             score_list.append(loud_score)
+
                             # for loudnote in post_notes['loud notes']:
                             #     if loudnote[1] > 10 and loudnote[1] < 40:
                             #         loud_score += 1
@@ -411,7 +406,7 @@ def h5_to_album_with_models(filename, sample):
                                 song_score += weight_list[m] * score_list[m]
                             song_score /= weight_sum
 
-                            if song_score > .2 and not ((score_list[0] + score_list[1] + score_list[2] == 3) and (score_list[4] + score_list[5] < .3)):
+                            if song_score > .3:
                                 line_dict['status'] = 'unverified'
                                 if song_score > .5:
                                     line_dict['status'] = 'verified'
@@ -426,7 +421,7 @@ def h5_to_album_with_models(filename, sample):
                                     song_album.append(add_song_to_album(data, j, rows, i, columns, post_notes, line_dict, song_score, score_list, vertical_splash = False))
                                     save_intro_png(data, i, columns, line_dict)
                                     save_song_png(data, i, columns, line_dict)
-                                    if song_score > .8:
+                                    if song_score > .7:
                                         last_song_time = line_dict['onset time'] * 0.023219814
                                         i += 110
                                 # since it has been verified jump a song width and continue on
@@ -439,7 +434,7 @@ def h5_to_album_with_models(filename, sample):
                             else:
                                 pass
                         else:
-                            # print(f'row: {j}, time: {i * 0.023219814}, did not pass post note tests')
+                            print(f'row: {j}, time: {i * 0.023219814}, did not pass post note tests')
                             i += 1
                             break
                     else:
@@ -448,7 +443,8 @@ def h5_to_album_with_models(filename, sample):
                         if song_prediction < 0.1:
                             print(f'jumping ahead at {i * 0.023219814} because score: {intro_song_score}, score_list: {score_list}')
                             break
-            j += 5         
+                        
+            j += 29         
         i += 2
 
     #save a bunch of spectrograms
@@ -470,7 +466,7 @@ def look_for_heth(data, intro_model, song_model, decibel_threshold):
                 break
             song_score = 0
             if (data[j][i] > decibel_threshold):
-                line_dict = check_for_thread_strict(data, j, i, rows, columns, decibel_threshold, decibel_threshold + 5, intro_min_length, intro_max_length)
+                line_dict = check_for_thread_strict(data, j, i, rows, columns, decibel_threshold, decibel_threshold + 5, intro_min_length, intro_max_length, 15)
                 if line_dict['length'] > intro_min_length:
                     splash_score = check_for_three_vertical_splash(data, j, i, rows, 30, line_dict['mean db'], line_dict['max db'], line_dict['line values'], line_dict['index values'], intro_min_length)
                     intro_prediction = intro_predict(data, i, columns, line_dict, intro_model)
@@ -887,7 +883,7 @@ def check_for_thread(array, row, column, rows, columns, threshold, max_threshold
         return {'length': 0}
 
 #no recursion, easier to understand, it just jumps to the loudest value out of the closes five rows in the next column.
-def check_for_thread_strict(array, row, column, rows, columns, threshold, max_threshold, min_length, stop_length):
+def check_for_thread_strict(array, row, column, rows, columns, threshold, max_threshold, min_length, stop_length, line_reach):
     length = 1
     line_values = []
     index_values = [row]
@@ -895,23 +891,25 @@ def check_for_thread_strict(array, row, column, rows, columns, threshold, max_th
     start_row = row
     prev_value = array[row, column]
     line_values.append(prev_value)
-    if (row < (rows - 2*stop_length)) and (column < columns - stop_length):
+    if (column < columns - stop_length):
         while (length < stop_length):
-            next_value = -80
+            if (row < line_reach) or (row > rows - line_reach):
+                return {'length': 0}
             new_row = 0
-            for i in [0, -1, 1, -2, 2, -3, 3, -4, 4, -5, 5]:
-                if (array[row + i, column + length] > next_value):
-                    next_value = array[row + i, column + length]
-                    new_row = row + i
-            if (array[new_row, column + length] > threshold) and (abs(array[new_row, column + length] - prev_value) < diff_threshold):
+            max_index = np.argmax(array[row - line_reach: row + line_reach, column + length])
+            new_row = row - line_reach + max_index
+            if (array[new_row, column + length] > threshold):
                 line_values.append(array[new_row, column + length])
                 line_freqs.append(new_row)
                 prev_value = array[new_row, column + length]
                 row = new_row
                 index_values.append(new_row)
                 length += 1
-                if row < 10:
-                    return {'length': 0}
+                if length > 10 and line_reach > 8:
+                    line_reach = 8
+                if length > 15 and line_reach > 4:
+                    line_reach = 4
+
             else:
                 #end of the line, not max length, so check how it qualifies
                 if (length >= min_length) and (np.mean(line_values) > max_threshold):
@@ -926,25 +924,39 @@ def check_for_thread_strict(array, row, column, rows, columns, threshold, max_th
     else:
         return {'length': 0}
 
-def a_back_line(array, row, column, rows, columns, threshold, stop_length, mean_db):
+def line_fade(line_values, length):
+    if length == intro_max_length:
+        max_mean = -80
+        for cut in range(len(line_values)-5):
+            current_mean = np.mean(line_values[cut: cut+5])
+            if current_mean > max_mean:
+                max_mean = current_mean
+            if (max_mean - current_mean) > 8:
+                return True
+        print(f'line fade did not trip because {max_mean} - {current_mean} = {max_mean - current_mean}')
+        return False
+    return True
+
+def a_back_line(array, row, column, rows, columns, threshold, stop_length, intro_values, line_reach):
     if column < 10:
         return False
     length = 1
     line_values = []
     while length <= stop_length:
-        next_value = -80
+        if (row < line_reach) or (row > rows - line_reach):
+            return False
         new_row = 0
-        for i in [0, -1, 1, -2, 2, -3, 3, -4, 4, -5, 5]:
-            if (array[row + i, column - length] > next_value):
-                next_value = array[row + i, column + length]
-                new_row = row + i
+        max_index = np.argmax(array[row - line_reach: row + line_reach, column - length])
+        new_row = row - line_reach + max_index
         if (array[new_row, column - length] > threshold):
             row = new_row
             line_values.append(array[new_row, column - length])
             length += 1
         else:
             return False
-    if abs(mean_db - np.mean(line_values)) < 15:
+    diff = abs(np.mean(intro_values[:5]) - np.mean(line_values))
+    if diff < 8:
+        print(f'back line tripped at row:{row}, column: {column}')
         return True
     else:
         return False
@@ -966,7 +978,7 @@ def check_for_posts(array, post_thresh:float, post_onset:float, column:int, colu
                     if (l < post_note[0] + 20) and (l > post_note[0] - 20) and ((k - start) < (post_note[1] + post_note[2] + 5)):
                         unique = False    
                 if unique:
-                    line_dict = check_for_thread_strict(array, l, k, rows, columns, post_thresh, post_max, post_min_length, post_max_length)
+                    line_dict = check_for_thread_strict(array, l, k, rows, columns, post_thresh, post_max, post_min_length, post_max_length, 15)
                     if (line_dict['length'] >= post_min_length) and (line_dict['max db'] > loud_post_threshold):
                         loud_notes.append([line_dict['onset freq'], line_dict['onset time'] - start, line_dict['length'], line_dict['mean freq']])
                         l += 19
@@ -986,7 +998,7 @@ def check_for_posts(array, post_thresh:float, post_onset:float, column:int, colu
                     if (l < post_note[0] + 20) and (l > post_note[0] - 20) and ((k - start) < (post_note[1] + post_note[2] + 5)):
                         unique = False    
                 if unique:
-                    line_dict = check_for_thread_strict(array, l, k, rows, columns, post_thresh, post_max, post_min_length, post_max_length)
+                    line_dict = check_for_thread_strict(array, l, k, rows, columns, post_thresh, post_max, post_min_length, post_max_length, 15)
                     if (line_dict['length'] >= post_min_length) and (line_dict['max db'] <= loud_post_threshold):
                         soft_notes.append([line_dict['onset freq'], line_dict['onset time'] - start, line_dict['length'], line_dict['mean freq']])
                         l += 5
@@ -1017,7 +1029,7 @@ def check_for_posts(array, post_thresh:float, post_onset:float, column:int, colu
 
 
 def post_pool(array, column, rows, columns, cell_height, cell_length):
-    print(f'rows: {len(array)}, cols: {len(array[0])}')
+    # print(f'rows: {len(array)}, cols: {len(array[0])}')
     column_limit = column + 70
     row_index = 0
     post_note_array = []
@@ -1033,20 +1045,37 @@ def post_pool(array, column, rows, columns, cell_height, cell_length):
         post_note_array.append(row_values)
         row_index += cell_height
     return np.array(post_note_array)
-    
+
+def post_pool_score(array, thresh):
+    print(f'thresh: {thresh}')
+    sliced_array = array[:,2:5]
+    score = 0
+    for row_num in range(len(sliced_array)):
+        for col_num in range(len(sliced_array[0])):
+            if row_num > len(sliced_array) * 0.7:
+                if sliced_array[row_num, col_num] > thresh - 7:
+                    score += 1
+            else:
+                if sliced_array[row_num, col_num] > thresh:
+                    score += 1
+    return score
+
+
+
 # with h5py.File(directory + filename + '.h5', 'r') as hf:
 #     data = hf[filename + '_dataset'][:]
 
 # pool_list = []
-# pool_list.append((post_pool(data, 3211, len(data), len(data[0]), 25, 10)))
-# pool_list.append((post_pool(data, 2291, len(data), len(data[0]), 25, 10)))
-# pool_list.append((post_pool(data, 1913, len(data), len(data[0]), 25, 10)))
-# pool_list.append((post_pool(data, 3364, len(data), len(data[0]), 25, 10)))
-# pool_list.append((post_pool(data, 1366, len(data), len(data[0]), 25, 10)))
+# pool_list.append((post_pool(data, 6767, len(data), len(data[0]), 25, 5)))
+# pool_list.append((post_pool(data, 23125, len(data), len(data[0]), 25, 5)))
+# pool_list.append((post_pool(data, 16940, len(data), len(data[0]), 25, 5)))
+# pool_list.append((post_pool(data, 8301, len(data), len(data[0]), 25, 5)))
+# pool_list.append((post_pool(data, 2118, len(data), len(data[0]), 25, 5)))
 
 # for pool in pool_list:
-#     print(np.mean(pool[:,2:4]))
-#     print(np.median(pool[:,2:4]))
+#     print(pool[:,2:5])
+#     print(post_pool_score(pool, -53))
+#     print(np.median(pool[:,2:5]))
 
 # print(pool_array.shape)
 # print(pool_array)
@@ -1062,41 +1091,41 @@ def post_pool(array, column, rows, columns, cell_height, cell_length):
 
 
 
-def check_for_vertical_splash(array, row, column, rows, splash_range, mean_db, max_db, max_index, index_list):
-    value_list = []
-    splash_range_internal = splash_range
-    if index_list[max_index] + splash_range + 10 > rows:
-        splash_range_internal = rows - index_list[max_index]
-    for i in range(splash_range_internal):
-        value_list.append(array[index_list[max_index] + 10 + i][column + max_index])
-    if np.mean(value_list) > (mean_db - splash_threshold):
-        # print(f'at row: {index_list[max_index]}, column: {column + max_index} (max: {max_db}) upper splash over threshold ({mean_db - splash_threshold}) with {np.mean(value_list)}')
-        return True
-    value_list = []
-    if index_list[max_index] - 10 - splash_range < 0:
-        splash_range_internal = index_list[max_index]
-    for i in range(splash_range_internal):
-        value_list.append(array[index_list[max_index] - 10 - i][column + max_index])
-    if np.mean(value_list) > (mean_db - splash_threshold):
-        # print(f'at row: {index_list[max_index]}, column: {column + max_index} (max: {max_db}) lower splash over threshold ({mean_db - splash_threshold}) with {np.mean(value_list)}')
-        return True
-    # print(f'at row: {index_list[max_index]}, column: {column + max_index} (max: {max_db}) splash did not break threshold ({mean_db - splash_threshold}) with {np.mean(value_list)}')
-    print(f'At row: {row}, time: {column * 0.023219814}, tripped the splash function')
-    return False
+# def check_for_vertical_splash(array, row, column, rows, splash_range, mean_db, max_db, max_index, index_list):
+#     value_list = []
+#     splash_range_internal = splash_range
+#     if index_list[max_index] + splash_range + 10 > rows:
+#         splash_range_internal = rows - index_list[max_index]
+#     for i in range(splash_range_internal):
+#         value_list.append(array[index_list[max_index] + 10 + i][column + max_index])
+#     if np.mean(value_list) > (mean_db - splash_threshold):
+#         # print(f'at row: {index_list[max_index]}, column: {column + max_index} (max: {max_db}) upper splash over threshold ({mean_db - splash_threshold}) with {np.mean(value_list)}')
+#         return True
+#     value_list = []
+#     if index_list[max_index] - 10 - splash_range < 0:
+#         splash_range_internal = index_list[max_index]
+#     for i in range(splash_range_internal):
+#         value_list.append(array[index_list[max_index] - 10 - i][column + max_index])
+#     if np.mean(value_list) > (mean_db - splash_threshold):
+#         # print(f'at row: {index_list[max_index]}, column: {column + max_index} (max: {max_db}) lower splash over threshold ({mean_db - splash_threshold}) with {np.mean(value_list)}')
+#         return True
+#     # print(f'at row: {index_list[max_index]}, column: {column + max_index} (max: {max_db}) splash did not break threshold ({mean_db - splash_threshold}) with {np.mean(value_list)}')
+#     print(f'At row: {row}, time: {column * 0.023219814}, tripped the splash function')
+#     return False
 
 def check_for_three_vertical_splash(array, row, column, rows, splash_range, mean_db, max_db, value_list, index_list, intro_min_length):
     length = len(index_list)
     partition = int(length/4)
-    print(f'partition: {partition}..... {index_list}')
+    # print(f'partition: {partition}..... {index_list}')
     #upward splash
     splash_score = 0
-    for count in range(3):
+    for count in range(2):
         if np.max(index_list[count * partition: count * partition + partition]) + splash_range >= rows:
             return 1.5
         area_median = np.median(array[np.max(index_list[count * partition: count * partition + partition]) + 15:np.max(index_list[count * partition: count * partition + partition]) + splash_range, column + (count * partition): column + (count * partition) + partition])
         section_mean = np.mean(value_list[count * partition: count*partition + partition])
         diff = section_mean - area_median
-        print(f'diff at {np.max(index_list[count * partition: count * partition + partition])}, {(column * 0.023219814):.2f}:__{(section_mean):.2f} - {(area_median):.2f} = {diff:.2f}')
+        # print(f'diff at {np.max(index_list[count * partition: count * partition + partition])}, {(column * 0.023219814):.2f}:__{(section_mean):.2f} - {(area_median):.2f} = {diff:.2f}')
         if diff > 25:
             continue
         elif diff > 20:
@@ -1110,13 +1139,13 @@ def check_for_three_vertical_splash(array, row, column, rows, splash_range, mean
         else:
             splash_score += 2
     #downward splash
-    for count in range(3):
+    for count in range(2):
         if np.min(index_list[count * partition: count * partition + partition]) - splash_range <= 0:
             return 1.5
         area_median = np.median(array[np.min(index_list[count * partition: count * partition + partition]) - splash_range:np.min(index_list[count * partition: count * partition + partition]) - 15, column + (count * partition): column + (count * partition) + partition])
         section_mean = np.mean(value_list[count * partition: count*partition + partition])
         diff = section_mean - area_median
-        print(f'diff at {np.min(index_list[count * partition: count * partition + partition])}, {(column * 0.023219814):.2f}:__{section_mean:.2f} - {area_median:.2f} = {diff:.2f}')
+        # print(f'diff at {np.min(index_list[count * partition: count * partition + partition])}, {(column * 0.023219814):.2f}:__{section_mean:.2f} - {area_median:.2f} = {diff:.2f}')
         if diff > 25:
             continue
         elif diff > 20:
@@ -1129,7 +1158,7 @@ def check_for_three_vertical_splash(array, row, column, rows, splash_range, mean
             splash_score += 1.5
         else:
             splash_score += 2
-    print(f'splash score: {splash_score}')
+    # print(f'splash score: {splash_score}')
     return splash_score
 
 #this is where song status is checked and songs are sliced and formatted into the album
@@ -1687,7 +1716,7 @@ def create_song_album_from_df(dicty_list, filename: string):
                         break
                     if (data[j][i] > intro_onset):
                         # print(f'checking a new pixel at column: {i}')
-                        line_dict = check_for_thread_strict(data, j, i, rows, columns, intro_threshold, intro_max, intro_min_length, intro_max_length)
+                        line_dict = check_for_thread_strict(data, j, i, rows, columns, intro_threshold, intro_max, intro_min_length, intro_max_length, 15)
                         if line_dict['length'] > intro_min_length:
                             post_notes = check_for_posts(data, post_threshold, post_onset, i, columns, rows, loud_post_threshold)
                             #cut the song out and add it to album
@@ -2159,7 +2188,7 @@ def load_variables(array):
     global post_threshold
     global loud_post_threshold
 
-    intro_threshold = np.median(array) + np.std(array) * (.75 + (abs(-45 - np.median(array))/20))
+    intro_threshold = np.median(array) + np.std(array) * (.75 + (abs(-45 - np.median(array))/20)) + 5
     print(f'intro threshold is {intro_threshold}')
     intro_max = intro_threshold + 5
     intro_onset = intro_threshold
@@ -2244,13 +2273,13 @@ def check_prob_dist():
 # slice_a_wav(60)
 # set_up('file')
 
-# check_the_numbers(372.25, 1.5)
-# show_a_spectrogram(31.6, 1.5)
+# check_the_numbers(152.6, 1.5)
+show_a_spectrogram(374.4, 1.5)
 
 # first_pass_sample() # this grabs a little sample of the data to inspect
 # #creates df.csv and folder of prospective spectrograms. delete rows and make changes to intro column in df.csv before second pass. Takes ~2min
 
-first_pass()
+# first_pass()
 
 # #creates new folder of spectrograms and new_df.csv. Then it compares songs, assigns categories, creates images sorted by ST, and creates master sheet. Takes ~2.5min
 
