@@ -19,6 +19,8 @@ Currently, HethSorter requires that python be installed on the user’s computer
 
 ### Usage
 
+Watch the included .mp4 video for a tutorial of how to use HethSorter with the included sample files.
+
 There are two contexts for using HethSorter, each with its own workflow. The two contexts are:
 1)	**Without Templates**: Using HethSorter without ever having labelled the focal bird’s song-types.
 2)	**With Templates**: Using HethSorter when the focal bird’s song-types have been previously labelled on another recording.
