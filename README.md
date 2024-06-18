@@ -8,7 +8,7 @@ HethSorter takes wave files along with Raven selection tables (in which hermit t
 **Inputs:**
  - .wav file with hermit thrush song
  - a corresponding .txt [Raven] selection table with accurately selected hermit thrush intro notes
- - the hethsorter_params.csv file for designated the filenames. For better accuracy, include a wave file and selection table that has labelled song-types.
+ - the hethsorter_params.csv file for designating the filenames. For better accuracy, include a wave file and selection table that has labelled song-types.
 
 **Output:**
  - a .txt [Raven] selection table with songs categorized and labelled by song-type.
